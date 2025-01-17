@@ -8,7 +8,7 @@
 RAW_DIR = "/Users/dd/Projects/xai-kairos/kairos-xai/data/clearscope"
 
 # The directory to save all artifacts
-ARTIFACT_DIR = "artifact/"
+ARTIFACT_DIR = "artifact/clearscope/"
 
 # The directory to save the vectorized graphs
 GRAPHS_DIR = ARTIFACT_DIR + "graphs/"

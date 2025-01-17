@@ -1,5 +1,5 @@
 prepare:
-	mkdir -p ./artifact/
+	mkdir -p ./artifact/clearscope
 
 create_database:
 	python create_database.py
