@@ -2,8 +2,35 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# Adjust Full Page Width
-st.set_page_config(layout="wide", initial_sidebar_state= "collapsed")
+# Adjust Full Page Width & Sidebar Behavior
+st.set_page_config(layout="wide", initial_sidebar_state="collapsed")
+
+# --------------------------
+# Global CSS for uniform button style
+# --------------------------
+st.markdown(
+    """
+    <style>
+    /* This will style ALL st.button elements in the app.
+       They will have the same width (100% of their container),
+       ensuring uniform button sizes across the three columns. */
+    .stButton > button {
+        width: 100% !important;
+        background-color: #f8f8f8;
+        border: 1px solid #ccc;
+        font-size: 14px;
+        padding: 6px 16px;
+        border-radius: 5px;
+        margin: 2px 0px;
+        color: #333;
+    }
+    .stButton > button:hover {
+        background-color: #eaeaea;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 # Sidebar: Incident Filter
 st.sidebar.header("Incident Filter")
@@ -46,7 +73,6 @@ col1, col2, col3 = st.columns(3)
 # Column 1: Threat Intelligence Summary and Impact Assessment
 # -----------------------------------------------------------------------------
 with col1:
-    # Adding Buttons for Displaying Information
     st.subheader("Threat Intelligence & Analysis")
 
     # Create toggle buttons for displaying information
@@ -57,7 +83,7 @@ with col1:
     )
 
     if selected_view == "IoC & Impact":
-        # Threat Intelligence Summary Section
+        # Threat Intelligence Summary
         st.subheader("Threat Intelligence Summary")
         st.table(
             pd.DataFrame({
@@ -78,7 +104,7 @@ with col1:
             })
         )
 
-        # Impact Assessment Section
+        # Impact Assessment
         st.subheader("Impact Assessment")
         st.table(
             pd.DataFrame({
@@ -100,7 +126,6 @@ with col1:
         )
 
     elif selected_view == "Key Analysis":
-        # Key Analysis Section
         st.subheader("Key Analysis")
         st.markdown("""
         - **Attack Vector:** Spear-phishing email with a malicious attachment (`invoice.pdf.exe`)
@@ -114,13 +139,12 @@ with col1:
             - The infected machine exfiltrated financial reports (4GB).
         """)
 
-
 # -----------------------------------------------------------------------------
-# Column 2: XAI Graphs (with three buttons)
+# Column 2: Mitigation Steps & XAI Graphs
 # -----------------------------------------------------------------------------
 with col2:
     st.subheader("Mitigation steps")
-    # Create a scrollable container with a fixed height
+    # Scrollable container for steps
     st.markdown("""
     <div style="height: 250px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
         <ul>
@@ -138,12 +162,9 @@ with col2:
     </div>
     """, unsafe_allow_html=True)
 
-
     st.subheader("XAI Graphs")
 
-    # -----------------------------
-    # Define DataFrames for each chart
-    # -----------------------------
+    # DataFrames for each chart
     remediation_data = pd.DataFrame({
         "Action": [
             "Force password resets",
@@ -183,16 +204,12 @@ with col2:
         "Attribution Score (%)": [89, 88, 86, 84]
     })
 
-    # -----------------------------
-    # Use session state to track which chart to show
-    # -----------------------------
+    # Session state for selected chart
     if "last_graph" not in st.session_state:
         st.session_state["last_graph"] = "Remediation"
 
-    # -----------------------------
-    # Create three side-by-side buttons
-    # -----------------------------
-    btn_col1, btn_col2, btn_col3 = st.columns(3)
+    # Uniform three-column layout for XAI buttons
+    btn_col1, btn_col2, btn_col3 = st.columns(3, gap="medium")
 
     with btn_col1:
         if st.button("Remediation / Mitigation"):
@@ -206,9 +223,7 @@ with col2:
         if st.button("XAI Overall Phishing"):
             st.session_state["last_graph"] = "Overall"
 
-    # -----------------------------
-    # Conditionally display the selected chart
-    # -----------------------------
+    # Display the chosen chart
     if st.session_state["last_graph"] == "Remediation":
         fig = px.bar(
             remediation_data,
@@ -228,7 +243,7 @@ with col2:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-    elif st.session_state["last_graph"] == "Overall":  # "Overall"
+    elif st.session_state["last_graph"] == "Overall":
         fig = px.bar(
             xai_overall_data,
             x="Feature",
@@ -242,7 +257,26 @@ with col2:
 # -----------------------------------------------------------------------------
 with col3:
     st.subheader("LLM Contextual Analysis")
-    user_input = st.text_area("Type analysis context:")
+
+    st.markdown(
+        """
+        **Suggested Questions:**
+        - How can we validate if any sensitive data was exfiltrated?
+        - What steps can immediately contain the threat?
+        - Which users or endpoints are at greatest risk?
+        - How should we improve our phishing detection mechanisms?
+        """
+    )
+
+    # Add some vertical space before the text area
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Larger text area
+    user_input = st.text_area("Type analysis context:", height=400)
 
     # Chat functionality
     if "chat_history" not in st.session_state:
@@ -257,7 +291,6 @@ with col3:
             )
             st.session_state["chat_history"].append({"user": user_input, "response": response})
 
-    # Display chat history
     for chat in st.session_state["chat_history"]:
         st.write(f"**You:** {chat['user']}")
         st.write(f"**LLM:** {chat['response']}")
