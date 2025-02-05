@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 
 # Adjust Full Page Width
-st.set_page_config(layout="wide")
+st.set_page_config(layout="wide", initial_sidebar_state= "collapsed")
 
 # Sidebar: Incident Filter
 st.sidebar.header("Incident Filter")
@@ -26,40 +26,119 @@ timestamp_utc = "2025-02-04 10:32:45 UTC"
 
 # Header
 st.markdown(f"""
-    <div style="background-color: {header_color}; color: white; padding: 5px; border-radius: 5px; text-align: center;">
-        <h2>[{alert_level.upper()}] Incident Alert</h2>
+    <div style="background-color: {header_color}; color: white; padding: 3px; border-radius: 5px; text-align: center;">
+        <h2> {incident_id}: [{alert_level.upper()}] Phishing Email campaign</h2>
     </div>
 """, unsafe_allow_html=True)
 
-header_col1, header_col2, header_col3, header_col4 = st.columns(4)
+header_col1, header_col2, header_col3= st.columns(3)
 with header_col1:
-    st.markdown(f"**Incident ID:** {incident_id}")
-with header_col2:
     st.markdown(f"**Status:** Active (Under Investigation)")
-with header_col3:
-    st.markdown(f"**Alert Type:** Phishing Email campaign") 
-with header_col4:
+with header_col2:
     st.markdown(f"**Target:** Finance Department (Multiple Users)")
+with header_col3:
+    st.markdown(f"**Timestamp:** {timestamp_utc}")
 
 # Layout: 3 Columns
-col1, col2, col3 = st.columns([2, 3, 2])
+col1, col2, col3 = st.columns(3)
 
 # -----------------------------------------------------------------------------
-# Column 1: Threat Intelligence Summary
+# Column 1: Threat Intelligence Summary and Impact Assessment
 # -----------------------------------------------------------------------------
 with col1:
-    st.subheader("Threat Intelligence Summary")
-    st.subheader("Indicators of Compromise (IoCs):")
-    st.markdown("- **Hashes:** d41d8cd98f00b204e9800998ecf8427e")
-    st.markdown("- **Malicious Domains:** secure-payments-verification[.]com")
-    st.markdown("- **Suspicious IPs:** 192.168.56.12 (C2 Server)")
-    st.markdown("- **Emails:** billing-alert@secure-payments-verification[.]com")
-    st.markdown("- **Registry Key Modifications:** HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\svchost")
+    # Adding Buttons for Displaying Information
+    st.subheader("Threat Intelligence & Analysis")
+
+    # Create toggle buttons for displaying information
+    selected_view = st.radio(
+        "Select View:",
+        ("IoC & Impact", "Key Analysis"),
+        index=0
+    )
+
+    if selected_view == "IoC & Impact":
+        # Threat Intelligence Summary Section
+        st.subheader("Threat Intelligence Summary")
+        st.table(
+            pd.DataFrame({
+                "Label": [
+                    "Hashes",
+                    "Malicious Domains",
+                    "Suspicious IPs",
+                    "Emails",
+                    "Registry Key Modifications"
+                ],
+                "Value": [
+                    "d41d8cd98f00b204e9800998ecf8427e",
+                    "secure-payments-verification[.]com",
+                    "192.168.56.12 (C2 Server)",
+                    "billing-alert@secure-payments-verification[.]com",
+                    "HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\svchost"
+                ]
+            })
+        )
+
+        # Impact Assessment Section
+        st.subheader("Impact Assessment")
+        st.table(
+            pd.DataFrame({
+                "Label": [
+                    "Users Impacted",
+                    "Devices Impacted",
+                    "Data Loss",
+                    "Credential Theft",
+                    "Expected Downtime"
+                ],
+                "Value": [
+                    "6",
+                    "3 (laptops)",
+                    "Financial statements leaked (4GB exfiltrated)",
+                    "2 users",
+                    "3-6 hours for remediation"
+                ]
+            })
+        )
+
+    elif selected_view == "Key Analysis":
+        # Key Analysis Section
+        st.subheader("Key Analysis")
+        st.markdown("""
+        - **Attack Vector:** Spear-phishing email with a malicious attachment (`invoice.pdf.exe`)
+        - **Payload:** Remote Access Trojan (RAT)
+        - **Campaign Name:** "Invoice Payment Reminder - Urgent Action Required"
+        - **Exploited Weakness:** Lack of MFA and employees clicking on malicious links
+        - **Simplified Investigation:**
+            - 6 users in the finance team opened the phishing email.
+            - 2 users entered credentials on a fake login page.
+            - The malicious attachment executed a PowerShell script, initiating a connection to a Command-and-Control (C2) server.
+            - The infected machine exfiltrated financial reports (4GB).
+        """)
+
 
 # -----------------------------------------------------------------------------
 # Column 2: XAI Graphs (with three buttons)
 # -----------------------------------------------------------------------------
 with col2:
+    st.subheader("Mitigation steps")
+    # Create a scrollable container with a fixed height
+    st.markdown("""
+    <div style="height: 250px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
+        <ul>
+            <li><b>Force Password Resets</b>  
+            Ensure that all affected users immediately reset their passwords to prevent unauthorized access.</li>
+            <li><b>Block Malicious Domains/IPs</b>  
+            Update firewall and security policies to block communication with known malicious domains and IP addresses.</li>
+            <li><b>Remove Email from Inboxes</b>  
+            Identify and delete the phishing email from all user inboxes to prevent further engagement.</li>
+            <li><b>Conduct Employee Security Awareness Training</b>  
+            Provide training to employees on recognizing phishing attempts and best security practices.</li>
+            <li><b>Patch Vulnerable Systems</b>  
+            Ensure all software, email security gateways, and endpoint protection solutions are updated to mitigate similar threats.</li>
+        </ul>
+    </div>
+    """, unsafe_allow_html=True)
+
+
     st.subheader("XAI Graphs")
 
     # -----------------------------
@@ -116,7 +195,7 @@ with col2:
     btn_col1, btn_col2, btn_col3 = st.columns(3)
 
     with btn_col1:
-        if st.button("Remediation/Mitigation"):
+        if st.button("Remediation / Mitigation"):
             st.session_state["last_graph"] = "Remediation"
 
     with btn_col2:
@@ -149,7 +228,7 @@ with col2:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-    else:  # "Overall"
+    elif st.session_state["last_graph"] == "Overall":  # "Overall"
         fig = px.bar(
             xai_overall_data,
             x="Feature",
@@ -186,7 +265,7 @@ with col3:
 # -----------------------------------------------------------------------------
 # Bottom Panel: Logs
 # -----------------------------------------------------------------------------
-st.subheader("Log Snippets")
+st.subheader("Incident Logs")
 logs = """
 [2023-10-05 08:15 UTC] User received phishing email: 'https://verify-paypal-login.com'
 [2023-10-05 08:17 UTC] User clicked phishing link: 'https://verify-paypal-login.com/login'
