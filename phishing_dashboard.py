@@ -108,80 +108,114 @@ col1, col2, col3 = st.columns(3)
 # Column 1: Threat Intelligence Summary and Impact Assessment
 # -----------------------------------------------------------------------------
 with col1:
-    # Indicators of Compromise
-    st.markdown("<h4 style='margin-bottom: 5px;'>Indicators of Compromise (IoC)</h4>",
-                unsafe_allow_html=True)
-    st.table(
-        pd.DataFrame({
-            "Label": [
-                "Hashes",
-                "Domains",
-                "IPs",
-                "Emails",
-            ],
-            "Value": [
-                "d41d8cd98f00b204e9800998ecf8427e",
-                "secure-payments-verification[.]com",
-                "192.168.56.12 (C2 Server)",
-                "billing-alert@secure-payments-verification[.]com",
-            ]
-        })
-    )
+    # Indicators of Compromise (IoC)
+    st.markdown("""
+        <div style="border: 2px solid #FFFFFF; border-radius: 5px; padding: 10px; margin-bottom: 20px;">
+            <h4 style="margin-top: 5px; margin-bottom: 10px;">Indicators of Compromise (IoC)</h4>
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="border-bottom: 2px solid #ddd;">
+                        <th style="text-align: left; padding: 8px;">Indicator</th>
+                        <th style="text-align: left; padding: 8px;">Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #ddd;">Hashes</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #ddd;">d41d8cd98f00b204e9800998ecf8427e</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #ddd;">Domains</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #ddd;">secure-payments-verification[.]com</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #ddd;">IPs</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #ddd;">192.168.56.12 (C2 Server)</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px;">Emails</td>
+                        <td style="padding: 8px;">billing-alert@secure-payments-verification[.]com</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    """, unsafe_allow_html=True)
 
     # Impact Assessment
-    st.markdown("<h4 style='margin-top: 5px; margin-bottom: 5px;'>Impact Assessment</h4>",
-                unsafe_allow_html=True)
-    st.table(
-        pd.DataFrame({
-            "Label": [
-                "Users Impacted",
-                "Devices Impacted",
-                "Data Loss",
-                "Credential Theft",
-                "Expected Downtime"
-            ],
-            "Value": [
-                "6",
-                "3 (laptops)",
-                "Financial statements leaked (4GB exfiltrated)",
-                "2 users",
-                "3-6 hours for remediation"
-            ]
-        })
-    )
+    st.markdown("""
+        <div style="border: 2px solid #FFFFFF; border-radius: 5px; padding: 10px; margin-bottom: 20px;">
+            <h4 style="margin-top: 5px; margin-bottom: 10px;">Impact Assessment</h4>
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="border-bottom: 2px solid #ddd;">
+                        <th style="text-align: left; padding: 8px;">Label</th>
+                        <th style="text-align: left; padding: 8px;">Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #ddd;">Users Impacted</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #ddd;">6</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #ddd;">Devices Impacted</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #ddd;">3 (laptops)</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #ddd;">Data Loss</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #ddd;">Financial statements leaked (4GB exfiltrated)</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #ddd;">Credential Theft</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #ddd;">2 users</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px;">Expected Downtime</td>
+                        <td style="padding: 8px;">3-6 hours for remediation</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    """, unsafe_allow_html=True)
 
     # Key Analysis
-    st.markdown("<h4 style='margin-top: 5px; margin-bottom: 5px;'>Key Analysis</h4>",
-                unsafe_allow_html=True)
     st.markdown("""
-    - **Attack Vector:** Spear-phishing email with a malicious attachment (`invoice.pdf.exe`)
-    - **Payload:** Remote Access Trojan (RAT)
-    - **Campaign Name:** "Invoice Payment Reminder - Urgent Action Required"
-    - **Exploited Weakness:** Lack of MFA and employees clicking on malicious links
-    - **Simplified Investigation:**
-        - 6 users in the finance team opened the phishing email.
-        - 2 users entered credentials on a fake login page.
-        - The malicious attachment executed a PowerShell script, initiating a connection to a Command-and-Control (C2) server.
-        - The infected machine exfiltrated financial reports (4GB).
-    """)
+        <div style="border: 2px solid #FFFFFF; border-radius: 5px; padding: 10px; margin-bottom: 20px;">
+            <h4 style="margin-top: 5px; margin-bottom: 10px;">Key Analysis</h4>
+            <ul style="padding-left: 20px;">
+                <li><strong>Attack Vector:</strong> Spear-phishing email with a malicious attachment (`invoice.pdf.exe`)</li>
+                <li><strong>Payload:</strong> Remote Access Trojan (RAT)</li>
+                <li><strong>Campaign Name:</strong> "Invoice Payment Reminder - Urgent Action Required"</li>
+                <li><strong>Exploited Weakness:</strong> Lack of MFA and employees clicking on malicious links</li>
+                <li><strong>Simplified Investigation:</strong>
+                    <ul style="padding-left: 20px;">
+                        <li>6 users in the finance team opened the phishing email.</li>
+                        <li>2 users entered credentials on a fake login page.</li>
+                        <li>The malicious attachment executed a PowerShell script, initiating a connection to a Command-and-Control (C2) server.</li>
+                        <li>The infected machine exfiltrated financial reports (4GB).</li>
+                    </ul>
+                </li>
+            </ul>
+        </div>
+    """, unsafe_allow_html=True)
 
 
 # -----------------------------------------------------------------------------
 # Column 2: Mitigation Steps & XAI Graphs
 # -----------------------------------------------------------------------------
 with col2:
-    st.markdown("<h4 style='margin-top: 5px; margin-bottom: 5px;'>Mitigation Steps</h4>",
-                unsafe_allow_html=True)
-
-    # Create a scrollable container with a fixed height
+    # Mitigation Steps
     st.markdown("""
-        <ol>
-            <li>Isolate Impacted Devices  
-            <li>Disable Compromised Accounts & Reset Passwords  
-            <li>Block IoCs at Network & Endpoint Levels  
-            <li>Notify Affected Users & Security Operations Center (SOC)  
-            <li>Enable MFA on All High-Risk Accounts  
-        </ol>
+        <div style="border: 2px solid #FFFFFF; border-radius: 5px; padding: 10px; margin-bottom: 20px;">
+            <h4 style='margin-top: 5px; margin-bottom: 5px;'>Mitigation Steps</h4>
+            <ol>
+                <li>Isolate Impacted Devices  
+                <li>Disable Compromised Accounts & Reset Passwords  
+                <li>Block IoCs at Network & Endpoint Levels  
+                <li>Notify Affected Users & Security Operations Center (SOC)  
+                <li>Enable MFA on All High-Risk Accounts  
+            </ol>
+        </div>
     """, unsafe_allow_html=True)
 
     st.markdown("<h4 style='margin-top: 5px; margin-bottom: 5px;'>Explainable AI Graphs</h4>",
@@ -307,13 +341,13 @@ with col3:
         if st.button("Send"):
             if user_input:
                 # Example response from the LLM
-                response = ("<br>The estimated financial impact includes direct losses from unauthorized transactions, potential regulatory fines, and remediation costs. Additionally, reputational damage and lost productivity contribute to overall financial strain. A detailed cost breakdown is available upon request."
-                )
+                response = ("<br>The estimated financial impact includes direct losses from unauthorized transactions, potential regulatory fines, and remediation costs. Additionally, reputational damage and lost productivity contribute to overall financial strain.<br><b>Would you like a deeper analysis of the financial impact?</b>"
+                            )
                 st.session_state["chat_history"].append(
                     {"user": user_input, "response": response})
 
             # Clear the input field
-            st.session_state["user_input"] = ""
+            st.session_state["user_input"] = " "
 
     for chat in st.session_state["chat_history"]:
         # User message bubble
