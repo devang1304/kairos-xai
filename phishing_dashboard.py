@@ -12,43 +12,36 @@ st.set_page_config(layout="wide", initial_sidebar_state="collapsed")
 st.markdown(
     """
     <style>
+    /* Global font size adjustment */
+    body {
+        font-size: 18px !important;
+    }
+    
+    /* Header fonts */
+    h2, h3, h4 {
+        font-size: 28px !important;
+    }
+    
+    /* Modify table fonts */
+    table, th, td {
+        font-size: 18px !important;
+    }
+    
+    /* Modify button text */
     .stButton > button {
-        width: 100% !important;
-        background-color: #f8f8f8;
-        border: 1px solid #ccc;
-        font-size: 14px;
-        padding: 6px 16px;
-        border-radius: 5px;
-        margin: 2px 0px;
-        color: #333;
+        font-size: 18px !important;
     }
-    .stButton > button:hover {
-        background-color: #eaeaea;
+    
+    /* Modify text in the chat history */
+    .stTextInput, .stTextArea, .stMarkdown {
+        font-size: 18px !important;
     }
+    
     </style>
     """,
     unsafe_allow_html=True
 )
 
-st.markdown(
-    """
-    <style>
-    .block-container {
-        padding-top: 1rem;
-        padding-bottom: 1rem;
-    }
-    .stTable {
-        margin-top: -10px;
-        margin-bottom: -30px;
-    }
-    h4 {
-        margin-top: 5px;
-        margin-bottom: 5px;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
 
 
 # Sidebar: Incident Filter
@@ -100,6 +93,13 @@ with header_col3:
         </div>
     """, unsafe_allow_html=True)
 
+st.markdown("""
+<style>
+.streamlit-container {
+    border: 2px solid #FFFFFF;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # Body Layout: 3 Columns
 col1, col2, col3 = st.columns(3)
@@ -126,7 +126,7 @@ with col1:
                     </tr>
                     <tr>
                         <td style="padding: 8px; border-bottom: 1px solid #ddd;">Domains</td>
-                        <td style="padding: 8px; border-bottom: 1px solid #ddd;">secure-payments-verification[.]com</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #ddd;">secure-payments-verification[.]com &emsp;<b><i>(Who is lookup)</b></i></td>
                     </tr>
                     <tr>
                         <td style="padding: 8px; border-bottom: 1px solid #ddd;">IPs</td>
@@ -134,7 +134,7 @@ with col1:
                     </tr>
                     <tr>
                         <td style="padding: 8px;">Emails</td>
-                        <td style="padding: 8px;">billing-alert@secure-payments-verification[.]com</td>
+                        <td style="padding: 8px;">billing-alert@secure-payments-verification[.]com &emsp;<b><i>(Timeline)</b></i></td>
                     </tr>
                 </tbody>
             </table>
@@ -148,7 +148,7 @@ with col1:
             <table style="width: 100%; border-collapse: collapse;">
                 <thead>
                     <tr style="border-bottom: 2px solid #ddd;">
-                        <th style="text-align: left; padding: 8px;">Label</th>
+                        <th style="text-align: left; padding: 8px;">Indicator</th>
                         <th style="text-align: left; padding: 8px;">Value</th>
                     </tr>
                 </thead>
@@ -208,7 +208,7 @@ with col2:
     st.markdown("""
         <div style="border: 2px solid #FFFFFF; border-radius: 5px; padding: 10px; margin-bottom: 20px;">
             <h4 style='margin-top: 5px; margin-bottom: 5px;'>Mitigation Steps</h4>
-            <ol>
+            <ol style='font-size: 18px;'>
                 <li>Isolate Impacted Devices  
                 <li>Disable Compromised Accounts & Reset Passwords  
                 <li>Block IoCs at Network & Endpoint Levels  
@@ -236,7 +236,7 @@ with col2:
             "Highly Recommended",
             "Recommended",
             "Recommended",
-            "Optional (Depends on infra)"
+            "Optional"
         ]
     })
 
@@ -280,7 +280,7 @@ with col2:
             tickfont=dict(size=12),
             range=[70, 100]  # Dynamic scaling for y-axis
         ),
-        height=320,
+        height=380,
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -312,7 +312,7 @@ with col2:
             tickfont=dict(size=12),
             range=[75, 100]  # Dynamic scaling for y-axis
         ),
-        height=320,
+        height=380,
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -353,7 +353,7 @@ with col3:
         # User message bubble
         st.markdown(f"""
         <div style="text-align: right; margin-bottom: 10px;">
-            <div style="display: inline-block; background-color: #d1f2eb; padding: 8px 12px; border-radius: 15px; max-width: 80%; word-wrap: break-word; color: black;">
+            <div style="display: inline-block; background-color: #d1f2eb; padding: 8px 12px; border-radius: 15px; max-width: 80%; word-wrap: break-word; color: black; font-size: 20px;">
                 <b>You:</b> {chat['user']}
             </div>
         </div>
@@ -362,7 +362,8 @@ with col3:
         # LLM response bubble
         st.markdown(f"""
         <div style="text-align: left; margin-bottom: 10px;">
-            <div style="display: inline-block; background-color: #f2f2f2; padding: 8px 12px; border-radius: 15px; max-width: 80%; word-wrap: break-word; color: black;">
+            <div style="display: inline-block; background-color: #f2f2f2; padding: 8px 12px; border-radius: 15px; max-width: 80%; word-wrap: break-word; color: black; font-size: 20n you are here
+            px;">
                 <b>LLM:</b> {chat['response']}
             </div>
         </div>
@@ -376,6 +377,7 @@ with col3:
 # -----------------------------------------------------------------------------
 st.subheader("Incident Logs")
 logs = """
+[2023-10-05 08:00 UTC] Phishing email detected in finance department.
 [2023-10-05 08:15 UTC] User received phishing email: 'https://verify-paypal-login.com'
 [2023-10-05 08:17 UTC] User clicked phishing link: 'https://verify-paypal-login.com/login'
 [2023-10-05 08:20 UTC] Outbound connection to 185.63.254.1 on port 443
