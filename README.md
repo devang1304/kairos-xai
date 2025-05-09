@@ -17,14 +17,14 @@ This demo reproduces the experimental results reported in our paper using the CA
 
 ### 3. Configuration
 1. Edit the CADETS E3 configuration file:
-   - Open `NewCadetsE3/config.py`.
+   - Open `cadets/config.py`.
    - Set the variable `raw_dir` to the absolute path of the folder containing the raw CADETS E3 data.
    - Update database-related variables (e.g., `username`, `password`, etc.) to match your database configuration.
 
 ### 4. Run the Workflow
-1. Navigate to the NewCadetsE3 directory:
+1. Navigate to the cadets directory:
    ```bash
-   cd NewCadetsE3
+   cd cadets
    ```
 2. Execute the Kairos workflow (Recomended to run the pipeline in parts, check makefile):
    ```bash
@@ -32,7 +32,7 @@ This demo reproduces the experimental results reported in our paper using the CA
    ```
 
 ### 5. Generated Artifacts
-1. Once the workflow completes, artifacts will be stored in the `NewCadetsE3/artifact/` folder.
+1. Once the workflow completes, artifacts will be stored in the `cadets/artifact/` folder.
 
 #### Folder Structure:
 ```

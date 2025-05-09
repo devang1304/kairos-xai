@@ -10,6 +10,7 @@ DB_PORT = PORT              # Replace with the port of the database
 
 DB_NAME = DATABASE          # Replace with the name of the database to create
 
+
 def drop_database():
     """
     Drop the database if it exists.
@@ -27,11 +28,13 @@ def drop_database():
         cur = conn.cursor()
 
         # Check if the database exists
-        cur.execute("SELECT 1 FROM pg_catalog.pg_database WHERE datname = %s", (DB_NAME,))
+        cur.execute(
+            "SELECT 1 FROM pg_catalog.pg_database WHERE datname = %s", (DB_NAME,))
         exists = cur.fetchone()
         if exists:
             # Drop the database
-            cur.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(DB_NAME)))
+            cur.execute(sql.SQL("DROP DATABASE {}").format(
+                sql.Identifier(DB_NAME)))
             print(f"Database '{DB_NAME}' dropped successfully.")
         else:
             print(f"Database '{DB_NAME}' does not exist. No need to drop.")
@@ -41,6 +44,7 @@ def drop_database():
     except Exception as e:
         print(f"An error occurred while dropping the database: {e}")
         exit(1)
+
 
 def create_database():
     """
@@ -59,7 +63,8 @@ def create_database():
         cur = conn.cursor()
 
         # Create the database
-        cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(DB_NAME)))
+        cur.execute(sql.SQL("CREATE DATABASE {}").format(
+            sql.Identifier(DB_NAME)))
         print(f"Database '{DB_NAME}' created successfully.")
 
         cur.close()
@@ -69,6 +74,7 @@ def create_database():
     except Exception as e:
         print(f"An error occurred while creating the database: {e}")
         exit(1)
+
 
 def create_tables():
     """
@@ -175,6 +181,7 @@ def create_tables():
         if conn:
             conn.close()
         exit(1)
+
 
 if __name__ == "__main__":
     # Drop the existing database if it exists

@@ -1,32 +1,38 @@
 prepare:
 	mkdir -p ./artifact/
 
-create_database:
-	python create_database.py
+build_db:
+	python 1_build_database.py
 
-embed_graphs:
-	python embedding.py
+create_db:
+	python 2_create_database.py
 
-train:
-	python train.py
+validate_db:
+	python 3_validate_database.py
+
+embeddings:
+	python 4_embedding.py
+
+# train:
+# 	python train.py
 
 test:
-	python test.py
+	python 6_test.py
 
 anomalous_queue:
-	python anomalous_queue_construction.py
+	python 7_anomalous_queue_construction.py
 
 evaluation:
-	python evaluation.py
+	python 8_evaluation.py
 
 attack_investigation:
-	python attack_investigation.py
+	python 9_attack_investigation.py
 
-preprocess: prepare create_database embed_graphs
+preprocess: prepare build_db create_db validate_db embeddings
 
-deep_graph_learning: train test
+# deep_graph_learning: train test
 
 anomaly_detection: anomalous_queue evaluation
 
-pipeline: preprocess deep_graph_learning anomaly_detection attack_investigation
+# pipeline: preprocess deep_graph_learning anomaly_detection attack_investigation
 

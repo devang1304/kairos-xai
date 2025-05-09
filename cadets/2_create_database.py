@@ -8,19 +8,18 @@ import hashlib
 from config import *
 from kairos_utils import *
 
-filelist = [
- 'ta1-cadets-e3-official-1.json.4',
-'ta1-cadets-e3-official.json',
- 'ta1-cadets-e3-official.json.1',
- 'ta1-cadets-e3-official.json.2',
- 'ta1-cadets-e3-official-1.json',
- 'ta1-cadets-e3-official-1.json.1',
- 'ta1-cadets-e3-official-1.json.2',
- 'ta1-cadets-e3-official-1.json.3',
-  'ta1-cadets-e3-official-2.json',
-  'ta1-cadets-e3-official-2.json.1']
-
-
+FILELIST = [
+    'ta1-cadets-e3-official.json',
+    'ta1-cadets-e3-official.json.1',
+    'ta1-cadets-e3-official.json.2',
+    # 'ta1-cadets-e3-official-1.json',
+    # 'ta1-cadets-e3-official-1.json.1',
+    # 'ta1-cadets-e3-official-1.json.2',
+    # 'ta1-cadets-e3-official-1.json.3',
+    # 'ta1-cadets-e3-official-1.json.4',
+    # 'ta1-cadets-e3-official-2.json',
+    # 'ta1-cadets-e3-official-2.json.1'
+]
 
 
 def stringtomd5(originstr):
@@ -29,11 +28,12 @@ def stringtomd5(originstr):
     signaturemd5.update(originstr)
     return signaturemd5.hexdigest()
 
+
 def store_netflow(file_path, cur, connect):
     # Parse data from logs
     netobjset = set()
     netobj2hash = {}
-    for file in tqdm(filelist):
+    for file in tqdm(FILELIST):
         with open(file_path + file, "r") as f:
             for line in f:
                 if "NetFlowObject" in line:
@@ -60,13 +60,15 @@ def store_netflow(file_path, cur, connect):
     datalist = []
     for i in netobj2hash.keys():
         if len(i) != 64:
-            datalist.append([i] + [netobj2hash[i][0]] + netobj2hash[i][1].split(","))
+            datalist.append([i] + [netobj2hash[i][0]] +
+                            netobj2hash[i][1].split(","))
 
     sql = '''insert into netflow_node_table
-                         values %s ON CONFLICT DO NOTHING
+                         values %s
             '''
     ex.execute_values(cur, sql, datalist, page_size=10000)
     connect.commit()
+
 
 def store_subject(file_path, cur, connect):
     # Parse data from logs
@@ -74,14 +76,15 @@ def store_subject(file_path, cur, connect):
     fail_count = 0
     subject_objset = set()
     subject_obj2hash = {}  #
-    for file in tqdm(filelist):
+    for file in tqdm(FILELIST):
         with open(file_path + file, "r") as f:
             for line in f:
                 if "Event" in line:
                     subject_uuid = re.findall(
                         '"subject":{"com.bbn.tc.schema.avro.cdm18.UUID":"(.*?)"}(.*?)"exec":"(.*?)"', line)
                     try:
-                        subject_obj2hash[subject_uuid[0][0]] = subject_uuid[0][-1]
+                        subject_obj2hash[subject_uuid[0]
+                                         [0]] = subject_uuid[0][-1]
                         scusess_count += 1
                     except:
                         try:
@@ -93,27 +96,30 @@ def store_subject(file_path, cur, connect):
     datalist = []
     for i in subject_obj2hash.keys():
         if len(i) != 64:
-            datalist.append([i] + [stringtomd5(subject_obj2hash[i]), subject_obj2hash[i]])
+            datalist.append(
+                [i] + [stringtomd5(subject_obj2hash[i]), subject_obj2hash[i]])
     sql = '''insert into subject_node_table
-                         values %s ON CONFLICT DO NOTHING
+                         values %s
             '''
     ex.execute_values(cur, sql, datalist, page_size=10000)
     connect.commit()
 
+
 def store_file(file_path, cur, connect):
     file_node = set()
-    for file in tqdm(filelist):
+    for file in tqdm(FILELIST):
         with open(file_path + file, "r") as f:
             for line in f:
                 if "com.bbn.tc.schema.avro.cdm18.FileObject" in line:
-                    Object_uuid = re.findall('FileObject":{"uuid":"(.*?)",', line)
+                    Object_uuid = re.findall(
+                        'FileObject":{"uuid":"(.*?)",', line)
                     try:
                         file_node.add(Object_uuid[0])
                     except:
                         print(line)
 
     file_obj2hash = {}
-    for file in tqdm(filelist):
+    for file in tqdm(FILELIST):
         with open(file_path + file, "r") as f:
             for line in f:
                 if '{"datum":{"com.bbn.tc.schema.avro.cdm18.Event"' in line:
@@ -122,18 +128,22 @@ def store_file(file_path, cur, connect):
                     if len(predicateObject_uuid) > 0:
                         if predicateObject_uuid[0] in file_node:
                             if '"predicateObjectPath":null,' not in line and '<unknown>' not in line:
-                                path_name = re.findall('"predicateObjectPath":{"string":"(.*?)"', line)
-                                file_obj2hash[predicateObject_uuid[0]] = path_name
+                                path_name = re.findall(
+                                    '"predicateObjectPath":{"string":"(.*?)"', line)
+                                file_obj2hash[predicateObject_uuid[0]
+                                              ] = path_name
 
     datalist = []
     for i in file_obj2hash.keys():
         if len(i) != 64:
-            datalist.append([i] + [stringtomd5(file_obj2hash[i][0]), file_obj2hash[i][0]])
+            datalist.append(
+                [i] + [stringtomd5(file_obj2hash[i][0]), file_obj2hash[i][0]])
     sql = '''insert into file_node_table
-                         values %s ON CONFLICT DO NOTHING
+                         values %s
             '''
     ex.execute_values(cur, sql, datalist, page_size=10000)
     connect.commit()
+
 
 def create_node_list(cur, connect):
     node_list = {}
@@ -183,7 +193,7 @@ def create_node_list(cur, connect):
         node_index += 1
 
     sql = '''insert into node2id
-                         values %s ON CONFLICT DO NOTHING
+                         values %s
             '''
     ex.execute_values(cur, sql, node_list_database, page_size=10000)
     connect.commit()
@@ -198,18 +208,23 @@ def create_node_list(cur, connect):
 
     return nodeid2msg, subject_uuid2hash, file_uuid2hash, net_uuid2hash
 
+
 def store_event(file_path, cur, connect, reverse, nodeid2msg, subject_uuid2hash, file_uuid2hash, net_uuid2hash):
     datalist = []
-    for file in tqdm(filelist):
+    for file in tqdm(FILELIST):
         with open(file_path + file, "r") as f:
             for line in f:
                 if '{"datum":{"com.bbn.tc.schema.avro.cdm18.Event"' in line and "EVENT_FLOWS_TO" not in line:
-                    subject_uuid = re.findall('"subject":{"com.bbn.tc.schema.avro.cdm18.UUID":"(.*?)"}', line)
-                    predicateObject_uuid = re.findall('"predicateObject":{"com.bbn.tc.schema.avro.cdm18.UUID":"(.*?)"}', line)
+                    subject_uuid = re.findall(
+                        '"subject":{"com.bbn.tc.schema.avro.cdm18.UUID":"(.*?)"}', line)
+                    predicateObject_uuid = re.findall(
+                        '"predicateObject":{"com.bbn.tc.schema.avro.cdm18.UUID":"(.*?)"}', line)
                     if len(subject_uuid) > 0 and len(predicateObject_uuid) > 0:
                         if subject_uuid[0] in subject_uuid2hash and (predicateObject_uuid[0] in file_uuid2hash or predicateObject_uuid[0] in net_uuid2hash):
-                            relation_type = re.findall('"type":"(.*?)"', line)[0]
-                            time_rec = re.findall('"timestampNanos":(.*?),', line)[0]
+                            relation_type = re.findall(
+                                '"type":"(.*?)"', line)[0]
+                            time_rec = re.findall(
+                                '"timestampNanos":(.*?),', line)[0]
                             time_rec = int(time_rec)
                             subjectId = subject_uuid2hash[subject_uuid[0]]
                             if predicateObject_uuid[0] in file_uuid2hash:
@@ -226,7 +241,7 @@ def store_event(file_path, cur, connect, reverse, nodeid2msg, subject_uuid2hash,
                                      time_rec])
 
     sql = '''insert into event_table
-                         values %s ON CONFLICT DO NOTHING
+                         values %s
             '''
     ex.execute_values(cur, sql, datalist, page_size=10000)
     connect.commit()
@@ -249,7 +264,8 @@ if __name__ == "__main__":
 
     # There will be 268242 entities stored in the table
     print("Extracting the node list")
-    nodeid2msg, subject_uuid2hash, file_uuid2hash, net_uuid2hash = create_node_list(cur=cur, connect=connect)
+    nodeid2msg, subject_uuid2hash, file_uuid2hash, net_uuid2hash = create_node_list(
+        cur=cur, connect=connect)
 
     # There will be 29727441 events stored in the table
     print("Processing the events")
@@ -257,7 +273,7 @@ if __name__ == "__main__":
         file_path=RAW_DIR,
         cur=cur,
         connect=connect,
-        reverse=EDGE_REVERSED,
+        reverse=edge_reversed,
         nodeid2msg=nodeid2msg,
         subject_uuid2hash=subject_uuid2hash,
         file_uuid2hash=file_uuid2hash,

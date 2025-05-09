@@ -34,8 +34,7 @@ def train(train_data,
     neighbor_loader.reset_state()  # Start with an empty graph.
 
     total_loss = 0
-    for i in range(0, len(train_data), 1024):
-        batch = train_data[i:i+1024]
+    for batch in train_data.seq_batches(batch_size=BATCH):
         optimizer.zero_grad()
 
         src, pos_dst, t, msg = batch.src, batch.dst, batch.t, batch.msg
@@ -74,10 +73,7 @@ def load_train_data():
     graph_4_2 = torch.load(GRAPHS_DIR + "/graph_4_2.TemporalData.simple").to(device=device)
     graph_4_3 = torch.load(GRAPHS_DIR + "/graph_4_3.TemporalData.simple").to(device=device)
     graph_4_4 = torch.load(GRAPHS_DIR + "/graph_4_4.TemporalData.simple").to(device=device)
-    graph_4_5 = torch.load(GRAPHS_DIR + "/graph_4_5.TemporalData.simple").to(device=device)
-    graph_4_6 = torch.load(GRAPHS_DIR + "/graph_4_6.TemporalData.simple").to(device=device)
-    graph_4_7 = torch.load(GRAPHS_DIR + "/graph_4_7.TemporalData.simple").to(device=device)
-    return [graph_4_2, graph_4_3, graph_4_4, graph_4_5, graph_4_6, graph_4_7]
+    return [graph_4_2, graph_4_3, graph_4_4]
 
 def init_models(node_feat_size):
     memory = TGNMemory(
@@ -96,7 +92,7 @@ def init_models(node_feat_size):
         time_enc=memory.time_enc,
     ).to(device)
 
-    out_channels = len(INCLUDE_EDGE_TYPE)
+    out_channels = len(include_edge_type)
     link_pred = LinkPredictor(in_channels=edge_dim, out_channels=out_channels).to(device)
 
     optimizer = torch.optim.Adam(
@@ -118,7 +114,7 @@ if __name__ == "__main__":
     memory, gnn, link_pred, optimizer, neighbor_loader = init_models(node_feat_size=node_feat_size)
 
     # train the model
-    for epoch in tqdm(range(epoch_num)):
+    for epoch in tqdm(range(1, epoch_num+1)):
         for g in train_data:
             loss = train(
                 train_data=g,

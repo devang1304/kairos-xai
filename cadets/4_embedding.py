@@ -70,19 +70,19 @@ def gen_feature(cur):
     FH_string = FeatureHasher(n_features=node_embedding_dim, input_type="string")
     node2higvec=[]
     for i in tqdm(node_msg_dic_list):
-        vec = FH_string.transform([[i]]).toarray()  # Note the double brackets
+        vec=FH_string.transform([[i]]).toarray()
         node2higvec.append(vec)
     node2higvec = np.array(node2higvec).reshape([-1, node_embedding_dim])
     torch.save(node2higvec, ARTIFACT_DIR + "node2higvec")
     return node2higvec
 
 def gen_relation_onehot():
-    relvec=torch.nn.functional.one_hot(torch.arange(0, len(REL2ID.keys())//2), num_classes=len(REL2ID.keys())//2)
+    relvec=torch.nn.functional.one_hot(torch.arange(0, len(rel2id.keys())//2), num_classes=len(rel2id.keys())//2)
     rel2vec={}
-    for i in REL2ID.keys():
+    for i in rel2id.keys():
         if type(i) is not int:
-            rel2vec[i]= relvec[REL2ID[i]-1]
-            rel2vec[relvec[REL2ID[i]-1]]=i
+            rel2vec[i]= relvec[rel2id[i]-1]
+            rel2vec[relvec[rel2id[i]-1]]=i
     torch.save(rel2vec, ARTIFACT_DIR + "rel2vec")
     return rel2vec
 
@@ -99,62 +99,48 @@ def gen_vectorized_graphs(cur, node2higvec, rel2vec, logger):
         cur.execute(sql)
         events = cur.fetchall()
         logger.info(f'2018-04-{day}, events count: {len(events)}')
-        
         edge_list = []
         for e in events:
             edge_temp = [int(e[1]), int(e[4]), e[2], e[5]]
-            if e[2] in INCLUDE_EDGE_TYPE:
+            if e[2] in include_edge_type:
                 edge_list.append(edge_temp)
-        
         logger.info(f'2018-04-{day}, edge list len: {len(edge_list)}')
         dataset = TemporalData()
         src = []
         dst = []
-        msg = []  # Initialize msg list
+        msg = []
         t = []
-
         for i in edge_list:
             src.append(int(i[0]))
             dst.append(int(i[1]))
-            # Ensure node2higvec and rel2vec have valid data
-            if i[0] < len(node2higvec) and i[1] < len(node2higvec) and i[2] in rel2vec:
-                message = torch.cat([torch.from_numpy(node2higvec[i[0]]), rel2vec[i[2]], torch.from_numpy(node2higvec[i[1]])])
-                msg.append(message)
+            msg.append(
+                torch.cat([torch.from_numpy(node2higvec[i[0]]), rel2vec[i[2]], torch.from_numpy(node2higvec[i[1]])]))
             t.append(int(i[3]))
 
         dataset.src = torch.tensor(src)
         dataset.dst = torch.tensor(dst)
         dataset.t = torch.tensor(t)
-
         # Check if msg is not empty before vstack
         if msg:
             dataset.msg = torch.vstack(msg)
             dataset.msg = dataset.msg.to(torch.float)
         else:
-            logger.warning(f'No valid messages for day 2018-04-{day}. Skipping vstack.')
-
+            logger.warning(
+                f'No valid messages for day 2018-04-{day}. Skipping vstack.')
+            
         dataset.src = dataset.src.to(torch.long)
         dataset.dst = dataset.dst.to(torch.long)
+        # dataset.msg = dataset.msg.to(torch.float)
         dataset.t = dataset.t.to(torch.long)
-
-        # Save the dataset only if msg is not empty
-        if msg:
-            torch.save(dataset, GRAPHS_DIR + "/graph_4_" + str(day) + ".TemporalData.simple")
-        else:
-            logger.warning(f'No data to save for day 2018-04-{day}. Skipping save.')
+        torch.save(dataset, GRAPHS_DIR + "/graph_4_" + str(day) + ".TemporalData.simple")
 
 if __name__ == "__main__":
     logger.info("Start logging.")
 
-    # Create the graphs directory if it doesn't exist
-    if not os.path.exists(GRAPHS_DIR):
-        os.makedirs(GRAPHS_DIR)
+    os.system(f"mkdir -p {GRAPHS_DIR}")
 
     cur, _ = init_database_connection()
     node2higvec = gen_feature(cur=cur)
     rel2vec = gen_relation_onehot()
     gen_vectorized_graphs(cur=cur, node2higvec=node2higvec, rel2vec=rel2vec, logger=logger)
-
-
-
 

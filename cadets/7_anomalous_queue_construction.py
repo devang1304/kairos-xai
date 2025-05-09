@@ -1,5 +1,7 @@
 import logging
 
+import torch
+
 from kairos_utils import *
 from config import *
 
@@ -42,55 +44,46 @@ def cal_anomaly_loss(loss_list, edge_list):
 
 def compute_IDF():
     node_IDF = {}
-
     file_list = []
-    file_path = ARTIFACT_DIR + "graph_4_8/"
-    file_l = os.listdir(file_path)
-    for i in file_l:
-        file_list.append(file_path + i)
 
-    file_path = ARTIFACT_DIR + "graph_4_9/"
-    file_l = os.listdir(file_path)
-    for i in file_l:
-        file_list.append(file_path + i)
+    # file_path = ARTIFACT_DIR + "graph_4_3/"
+    # file_l = os.listdir(file_path)
+    # for i in file_l:
+    #     file_list.append(file_path + i)
 
-    file_path = ARTIFACT_DIR + "graph_4_10/"
-    file_l = os.listdir(file_path)
-    for i in file_l:
-        file_list.append(file_path + i)
+    # file_path = ARTIFACT_DIR + "graph_4_4/"
+    # file_l = os.listdir(file_path)
+    # for i in file_l:
+    #     file_list.append(file_path + i)
 
-    file_path = ARTIFACT_DIR + "graph_4_11/"
-    file_l = os.listdir(file_path)
-    for i in file_l:
-        file_list.append(file_path + i)
+    # file_path = ARTIFACT_DIR + "graph_4_5/"
+    # file_l = os.listdir(file_path)
+    # for i in file_l:
+    #     file_list.append(file_path + i)
 
-    file_path = ARTIFACT_DIR + "graph_4_12/"
-    file_l = os.listdir(file_path)
-    for i in file_l:
-        file_list.append(file_path + i)
 
-    file_path = ARTIFACT_DIR + "graph_4_13/"
+    file_path = ARTIFACT_DIR + "graph_4_6_b/"
     file_l = os.listdir(file_path)
     for i in file_l:
         file_list.append(file_path + i)
 
     node_set = {}
     for f_path in tqdm(file_list):
-        f = open(f_path)
-        for line in f:
-            l = line.strip()
-            jdata = eval(l)
-            if jdata['loss'] > 0:
-                if 'netflow' not in str(jdata['srcmsg']):
-                    if str(jdata['srcmsg']) not in node_set.keys():
-                        node_set[str(jdata['srcmsg'])] = {f_path}
-                    else:
-                        node_set[str(jdata['srcmsg'])].add(f_path)
-                if 'netflow' not in str(jdata['dstmsg']):
-                    if str(jdata['dstmsg']) not in node_set.keys():
-                        node_set[str(jdata['dstmsg'])] = {f_path}
-                    else:
-                        node_set[str(jdata['dstmsg'])].add(f_path)
+        with open(f_path) as f:
+            for line in f:
+                l = line.strip()
+                jdata = eval(l)
+                if jdata['loss'] > 0:
+                    if 'netflow' not in str(jdata['srcmsg']):
+                        if str(jdata['srcmsg']) not in node_set.keys():
+                            node_set[str(jdata['srcmsg'])] = {f_path}
+                        else:
+                            node_set[str(jdata['srcmsg'])].add(f_path)
+                    if 'netflow' not in str(jdata['dstmsg']):
+                        if str(jdata['dstmsg']) not in node_set.keys():
+                            node_set[str(jdata['dstmsg'])] = {f_path}
+                        else:
+                            node_set[str(jdata['dstmsg'])].add(f_path)
     for n in node_set:
         include_count = len(node_set[n])
         IDF = math.log(len(file_list) / (include_count + 1))
@@ -211,42 +204,21 @@ if __name__ == "__main__":
     history_list = anomalous_queue_construction(
         node_IDF=node_IDF,
         tw_list=tw_list,
-        graph_dir_path=f"{ARTIFACT_DIR}/graph_4_8/"
+        graph_dir_path=f"{ARTIFACT_DIR}/graph_4_6_b/"
     )
-    torch.save(history_list, f"{ARTIFACT_DIR}/graph_4_8_history_list")
+    torch.save(history_list, f"{ARTIFACT_DIR}/graph_4_6_b_history_list")
 
+    # Testing date
     history_list = anomalous_queue_construction(
         node_IDF=node_IDF,
         tw_list=tw_list,
-        graph_dir_path=f"{ARTIFACT_DIR}/graph_4_9/"
+        graph_dir_path=f"{ARTIFACT_DIR}/graph_4_6_m/"
     )
-    torch.save(history_list, f"{ARTIFACT_DIR}/graph_4_9_history_list")
+    torch.save(history_list, f"{ARTIFACT_DIR}/graph_4_6_m_history_list")
 
-    history_list = anomalous_queue_construction(
-        node_IDF=node_IDF,
-        tw_list=tw_list,
-        graph_dir_path=f"{ARTIFACT_DIR}/graph_4_10/"
-    )
-    torch.save(history_list, f"{ARTIFACT_DIR}/graph_4_10_history_list")
-
-    #Testing date
-    history_list = anomalous_queue_construction(
-        node_IDF=node_IDF,
-        tw_list=tw_list,
-        graph_dir_path=f"{ARTIFACT_DIR}/graph_4_11/"
-    )
-    torch.save(history_list, f"{ARTIFACT_DIR}/graph_4_11_history_list")
-
-    history_list = anomalous_queue_construction(
-        node_IDF=node_IDF,
-        tw_list=tw_list,
-        graph_dir_path=f"{ARTIFACT_DIR}/graph_4_12/"
-    )
-    torch.save(history_list, f"{ARTIFACT_DIR}/graph_4_12_history_list")
-
-    history_list = anomalous_queue_construction(
-        node_IDF=node_IDF,
-        tw_list=tw_list,
-        graph_dir_path=f"{ARTIFACT_DIR}/graph_4_13/"
-    )
-    torch.save(history_list, f"{ARTIFACT_DIR}/graph_4_13_history_list")
+    # history_list = anomalous_queue_construction(
+    #     node_IDF=node_IDF,
+    #     tw_list=tw_list,
+    #     graph_dir_path=f"{ARTIFACT_DIR}/graph_4_7/"
+    # )
+    # torch.save(history_list, f"{ARTIFACT_DIR}/graph_4_7_history_list")
