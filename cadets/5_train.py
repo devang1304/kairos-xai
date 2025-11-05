@@ -8,6 +8,8 @@ import logging
 from kairos_utils import *
 from config import *
 from model import *
+from torch.optim.adam import Adam
+from torch_geometric.loader import TemporalDataLoader
 
 # Setting for logging
 logger = logging.getLogger("training_logger")
@@ -34,7 +36,9 @@ def train(train_data,
     neighbor_loader.reset_state()  # Start with an empty graph.
 
     total_loss = 0
-    for batch in train_data.seq_batches(batch_size=BATCH):
+    loader = TemporalDataLoader(train_data, batch_size=BATCH, shuffle=False)
+
+    for batch in loader:
         optimizer.zero_grad()
 
         src, pos_dst, t, msg = batch.src, batch.dst, batch.t, batch.msg
@@ -82,7 +86,7 @@ def init_models(node_feat_size):
         node_state_dim,
         time_dim,
         message_module=IdentityMessage(node_feat_size, node_state_dim, time_dim),
-        aggregator_module=LastAggregator(),
+        aggregator_module=MPSSafeLastAggregator(),
     ).to(device)
 
     gnn = GraphAttentionEmbedding(
@@ -94,8 +98,7 @@ def init_models(node_feat_size):
 
     out_channels = len(include_edge_type)
     link_pred = LinkPredictor(in_channels=edge_dim, out_channels=out_channels).to(device)
-
-    optimizer = torch.optim.Adam(
+    optimizer = Adam(
         set(memory.parameters()) | set(gnn.parameters())
         | set(link_pred.parameters()), lr=lr, eps=eps, weight_decay=weight_decay)
 

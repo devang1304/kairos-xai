@@ -5,10 +5,10 @@
 ########################################################
 
 # The directory of the raw logs
-RAW_DIR = "../data/cadets/"
+RAW_DIR = "/Volumes/Projects/Research/KAIROS/data/cadets/"
 
 # The directory to save all artifacts
-ARTIFACT_DIR = "./artifact/"
+ARTIFACT_DIR = "artifact/"
 
 # The directory to save the vectorized graphs
 GRAPHS_DIR = ARTIFACT_DIR + "graph_embeddings/"

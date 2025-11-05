@@ -13,8 +13,8 @@ validate_db:
 embeddings:
 	python 4_embedding.py
 
-# train:
-# 	python train.py
+train:
+	python 5_train.py
 
 test:
 	python 6_test.py

@@ -1,7 +1,14 @@
 from kairos_utils import *
 from config import *
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+torch.set_float32_matmul_precision("high")
+torch.set_num_threads(2)
+
+device = torch.device("mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu"))
+
+# remove or comment this line
+# torch.mps.set_enabled(True)
+
 criterion = nn.CrossEntropyLoss()
 
 max_node_num = 268243  # the number of nodes in node2id table +1
@@ -56,6 +63,26 @@ class LinkPredictor(torch.nn.Module):
         h = torch.cat([self.lin_src(z_src), self.lin_dst(z_dst)], dim=-1)
         h = self.lin_seq(h)
         return h
+
+class MPSSafeLastAggregator(torch.nn.Module):
+    def forward(self, msg, index, t, dim_size):
+        from torch_scatter import scatter_max
+
+        if msg.device.type == "mps":
+            msg_cpu = msg.to("cpu")
+            index_cpu = index.to("cpu")
+            t_cpu = t.to("cpu")
+            _, argmax = scatter_max(t_cpu, index_cpu, dim=0, dim_size=int(dim_size))
+            out_cpu = msg_cpu.new_zeros((int(dim_size), msg_cpu.size(-1)))
+            mask = argmax < msg_cpu.size(0)
+            out_cpu[mask] = msg_cpu[argmax[mask]]
+            return out_cpu.to(msg.device)
+
+        _, argmax = scatter_max(t, index, dim=0, dim_size=int(dim_size))
+        out = msg.new_zeros((int(dim_size), msg.size(-1)))
+        mask = argmax < msg.size(0)
+        out[mask] = msg[argmax[mask]]
+        return out
 
 def cal_pos_edges_loss_multiclass(link_pred_ratio,labels):
     loss=[]
