@@ -59,7 +59,7 @@ def gen_feature(cur):
     node2higvec = np.zeros((max_node_id + 1, node_embedding_dim), dtype=np.float32)
 
     FH_string = FeatureHasher(n_features=node_embedding_dim, input_type="string")
-    for node_id in tqdm(int_ids):
+    for node_id in tqdm(int_ids, desc="Generating node embeddings", leave=False):
         higlist = []
         if 'netflow' in nodeid2msg[node_id].keys():
             higlist = ['netflow']
@@ -160,7 +160,7 @@ def gen_vectorized_graphs(cur,
                           logger,
                           days: Optional[Iterable[int]] = None) -> None:
     day_list = list(days) if days is not None else list(range(2, 14))
-    for day in tqdm(day_list):
+    for day in tqdm(day_list, desc="Generating daily windows", leave=False):
         start_timestamp = datetime_to_ns_time_US(f'2018-04-{day:02d} 00:00:00')
         end_timestamp = datetime_to_ns_time_US(f'2018-04-{day + 1:02d} 00:00:00')
         edges = _fetch_edges(cur, start_timestamp, end_timestamp)
@@ -204,6 +204,7 @@ def parse_args():
     return parser.parse_args()
 
 if __name__ == "__main__":
+    print("[Embedding] Starting embedding pipeline...")
     args = parse_args()
     logger.info("Start logging.")
 
@@ -227,6 +228,7 @@ if __name__ == "__main__":
                               start_ts=start_ts,
                               end_ts=end_ts,
                               label=label)
+        print(f"[Embedding] Generated custom window '{label}'.")
 
     generate_daily = (not custom_window_requested) or not args.skip_daily
     if generate_daily:
@@ -235,3 +237,6 @@ if __name__ == "__main__":
                               rel2vec=rel2vec,
                               logger=logger,
                               days=args.days)
+        print("[Embedding] Generated daily embeddings.")
+
+    print("[Embedding] Embedding pipeline finished successfully.")

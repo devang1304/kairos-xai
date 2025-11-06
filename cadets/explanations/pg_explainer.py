@@ -5,6 +5,7 @@ import torch
 from torch_geometric.data import TemporalData
 from torch_geometric.explain import ExplainerConfig, ModelConfig
 from torch_geometric.explain.algorithm import PGExplainer as PGExplainerAlgo
+from tqdm import tqdm
 
 try:
     from .. import model
@@ -36,7 +37,7 @@ def train_pg_explainer(
     algorithm.model_config = ModelConfig(
         mode="multiclass_classification",
         task_level="edge",
-        return_type="logits",
+        return_type="raw",
     )
     algorithm.explainer_config = ExplainerConfig(
         explanation_type="phenomenon",
@@ -44,7 +45,7 @@ def train_pg_explainer(
         edge_mask_type="object",
     )
 
-    for epoch in range(PG_EPOCHS):
+    for epoch in tqdm(range(PG_EPOCHS), desc="PGExplainer epochs", leave=False):
         for idx in train_indices:
             context = contexts[idx]
             wrapper = utils.TemporalLinkWrapper(gnn, link_pred, context, device)

@@ -32,7 +32,7 @@ preprocess: prepare build_db create_db validate_db embeddings
 
 # deep_graph_learning: train test
 
-anomaly_detection: anomalous_queue evaluation
+anomaly_detection: anomalous_queue evaluation attack_investigation
 
-# pipeline: preprocess deep_graph_learning anomaly_detection attack_investigation
+# pipeline: preprocess deep_graph_learning anomaly_detection
 

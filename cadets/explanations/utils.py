@@ -8,6 +8,7 @@ from torch import Tensor
 from torch_geometric.data import TemporalData
 from torch_geometric.loader import TemporalDataLoader
 from torch_geometric.nn.models.tgn import LastNeighborLoader
+from tqdm import tqdm
 
 try:
     from ..config import GRAPHS_DIR, MODELS_DIR, neighbor_size, node_embedding_dim
@@ -192,7 +193,7 @@ def build_event_context(
     processed = 0
 
     with torch.no_grad():
-        for batch in temporal_loader:
+        for batch in tqdm(temporal_loader, desc="Replaying temporal stream", leave=False):
             src_cpu = batch.src
             dst_cpu = batch.dst
             t_cpu = batch.t
@@ -269,7 +270,7 @@ def stream_event_contexts(
     temporal_loader = TemporalDataLoader(data, batch_size=1, shuffle=False)
 
     with torch.no_grad():
-        for event_index, batch in enumerate(temporal_loader):
+        for event_index, batch in enumerate(tqdm(temporal_loader, desc="Streaming event contexts", leave=False)):
             src_cpu = batch.src
             dst_cpu = batch.dst
             t_cpu = batch.t

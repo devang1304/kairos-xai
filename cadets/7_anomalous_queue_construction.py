@@ -1,6 +1,8 @@
 import logging
+from pathlib import Path
 
 import torch
+from tqdm import tqdm
 
 from kairos_utils import *
 from config import *
@@ -47,9 +49,9 @@ def cal_anomaly_loss(loss_list, edge_list):
     return count, avg_loss, node_set, edge_set
 
 def compute_IDF():
+    print("[AnomalyQueue] Computing IDF weights...")
     node_IDF = {}
     file_list = []
-
     file_path = ARTIFACT_DIR + "graph_4_3/"
     file_l = os.listdir(file_path)
     for i in file_l:
@@ -67,7 +69,7 @@ def compute_IDF():
 
 
     node_set = {}
-    for f_path in tqdm(file_list):
+    for f_path in tqdm(file_list, desc="Scanning validation windows", leave=False):
         with open(f_path) as f:
             for line in f:
                 l = line.strip()
@@ -90,6 +92,7 @@ def compute_IDF():
 
     torch.save(node_IDF, ARTIFACT_DIR + "node_IDF")
     logger.info("IDF weight calculate complete!")
+    print("[AnomalyQueue] Computed IDF weights from validation windows.")
     return node_IDF, file_list
 
 # Measure the relationship between two time windows, if the returned value
@@ -146,7 +149,8 @@ def anomalous_queue_construction(node_IDF, tw_list, graph_dir_path):
 
     file_l = os.listdir(graph_dir_path)
     index_count = 0
-    for f_path in sorted(file_l):
+    window_label = Path(graph_dir_path).name or graph_dir_path
+    for f_path in tqdm(sorted(file_l), desc=f"Processing {window_label}", leave=False):
         logger.info("**************************************************")
         logger.info(f"Time window: {f_path}")
 
@@ -198,6 +202,7 @@ def anomalous_queue_construction(node_IDF, tw_list, graph_dir_path):
 
 
 if __name__ == "__main__":
+    print("[AnomalyQueue] Building anomalous queues...")
     logger.info("Start logging.")
 
     node_IDF, tw_list = compute_IDF()
@@ -209,6 +214,7 @@ if __name__ == "__main__":
         graph_dir_path=f"{ARTIFACT_DIR}/graph_4_5/"
     )
     torch.save(history_list, f"{ARTIFACT_DIR}/graph_4_5_history_list")
+    print("[AnomalyQueue] Saved history list for graph_4_5.")
 
     # Testing data
     history_list = anomalous_queue_construction(
@@ -217,6 +223,7 @@ if __name__ == "__main__":
         graph_dir_path=f"{ARTIFACT_DIR}/graph_4_6/"
     )
     torch.save(history_list, f"{ARTIFACT_DIR}/graph_4_6_history_list")
+    print("[AnomalyQueue] Saved history list for graph_4_6.")
 
     history_list = anomalous_queue_construction(
         node_IDF=node_IDF,
@@ -224,3 +231,5 @@ if __name__ == "__main__":
         graph_dir_path=f"{ARTIFACT_DIR}/graph_4_7/"
     )
     torch.save(history_list, f"{ARTIFACT_DIR}/graph_4_7_history_list")
+    print("[AnomalyQueue] Saved history list for graph_4_7.")
+    print("[AnomalyQueue] Queue construction complete.")

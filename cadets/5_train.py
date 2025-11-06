@@ -4,6 +4,7 @@
 ##########################################################################################
 
 import copy
+import os
 import logging
 from tqdm.auto import tqdm
 
@@ -161,6 +162,7 @@ def init_models(node_feat_size):
     return memory, gnn, link_pred, optimizer, neighbor_loader
 
 if __name__ == "__main__":
+    print("[Train] Starting training run...")
     logger.info("Start logging.")
 
     # Echo device info at runtime, in addition to model import print
@@ -206,4 +208,6 @@ if __name__ == "__main__":
     model = [memory, gnn, link_pred, neighbor_loader]
 
     os.system(f"mkdir -p {MODELS_DIR}")
-    torch.save(model, f"{MODELS_DIR}/models.pt")
+    model_path = os.path.join(MODELS_DIR, "models.pt")
+    torch.save(model, model_path)
+    print(f"[Train] Training complete; model saved to {model_path}")

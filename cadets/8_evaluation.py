@@ -1,5 +1,6 @@
 from sklearn.metrics import confusion_matrix
 import logging
+from tqdm import tqdm
 
 from kairos_utils import *
 from config import *
@@ -96,12 +97,13 @@ def calc_attack_edges():
     logger.info(f"Num of attack edges: {attack_edge_count}")
 
 if __name__ == "__main__":
+    print("[Evaluation] Starting evaluation pipeline...")
     logger.info("Start logging.")
 
     # Validation date
     anomalous_queue_scores = []
     history_list = torch.load(f"{ARTIFACT_DIR}/graph_4_5_history_list")
-    for hl in history_list:
+    for hl in tqdm(history_list, desc="Validation queues", leave=False):
         anomaly_score = 0
         for hq in hl:
             if anomaly_score == 0:
@@ -132,7 +134,7 @@ if __name__ == "__main__":
         pred_label[f] = 0
 
     history_list = torch.load(f"{ARTIFACT_DIR}/graph_4_6_history_list")
-    for hl in history_list:
+    for hl in tqdm(history_list, desc="Day 6 queues", leave=False):
         anomaly_score = 0
         for hq in hl:
             if anomaly_score == 0:
@@ -150,7 +152,7 @@ if __name__ == "__main__":
             logger.info(f"Anomaly score: {anomaly_score}")
 
     history_list = torch.load(f"{ARTIFACT_DIR}/graph_4_7_history_list")
-    for hl in history_list:
+    for hl in tqdm(history_list, desc="Day 7 queues", leave=False):
         anomaly_score = 0
         for hq in hl:
             if anomaly_score == 0:
@@ -174,4 +176,10 @@ if __name__ == "__main__":
     for i in labels:
         y.append(labels[i])
         y_pred.append(pred_label[i])
-    classifier_evaluation(y, y_pred)
+    precision, recall, fscore, accuracy, auc_val = classifier_evaluation(y, y_pred)
+    print(
+        "[Evaluation] Metrics — "
+        f"Precision: {precision:.4f}, Recall: {recall:.4f}, "
+        f"F1: {fscore:.4f}, Accuracy: {accuracy:.4f}, AUC: {auc_val:.4f}"
+    )
+    print("[Evaluation] Evaluation complete.")

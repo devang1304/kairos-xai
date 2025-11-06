@@ -9,6 +9,7 @@ from kairos_utils import *
 from config import *
 from model import *
 from torch_geometric.loader import TemporalDataLoader
+from tqdm import tqdm
 
 # Setting for logging
 logger = logging.getLogger("reconstruction_logger")
@@ -63,7 +64,7 @@ def test(inference_data,
         pin_memory=(device.type == "cuda"),
     )
 
-    for batch in loader: 
+    for batch in tqdm(loader, desc="testing windows", leave=False, mininterval=0.5):
         src = batch.src.to(device=device, non_blocking=True)
         pos_dst = batch.dst.to(device=device, non_blocking=True)
         t_cpu = batch.t
@@ -177,6 +178,7 @@ def load_data():
 
 
 if __name__ == "__main__":
+    print("[Test] Starting reconstruction runs...")
     logger.info("Start logging.")
 
     # load the map between nodeID and node labels
@@ -200,43 +202,24 @@ if __name__ == "__main__":
     memory, gnn, link_pred, _neighbor_loader = torch.load(f"{MODELS_DIR}models.pt", map_location=device)
     neighbor_loader = LastNeighborLoader(max_node_num, size=neighbor_size, device=device)
 
-    # Reconstruct the edges in each day
-    test(inference_data=graph_4_3,
-         memory=memory,
-         gnn=gnn,
-         link_pred=link_pred,
-         neighbor_loader=neighbor_loader,
-         nodeid2msg=nodeid2msg,
-         path=ARTIFACT_DIR + "graph_4_3")
+    evaluation_targets = [
+        ("graph_4_3", graph_4_3),
+        ("graph_4_4", graph_4_4),
+        ("graph_4_5", graph_4_5),
+        ("graph_4_6", graph_4_6),
+        ("graph_4_7", graph_4_7),
+    ]
 
-    test(inference_data=graph_4_4,
-         memory=memory,
-         gnn=gnn,
-         link_pred=link_pred,
-         neighbor_loader=neighbor_loader,
-         nodeid2msg=nodeid2msg,
-         path=ARTIFACT_DIR + "graph_4_4")
+    for label, dataset in tqdm(evaluation_targets, desc="reconstructing days", leave=False):
+        test(
+            inference_data=dataset,
+            memory=memory,
+            gnn=gnn,
+            link_pred=link_pred,
+            neighbor_loader=neighbor_loader,
+            nodeid2msg=nodeid2msg,
+            path=ARTIFACT_DIR + label,
+        )
+        print(f"[Test] Completed reconstruction for {label}.")
 
-    test(inference_data=graph_4_5,
-         memory=memory,
-         gnn=gnn,
-         link_pred=link_pred,
-         neighbor_loader=neighbor_loader,
-         nodeid2msg=nodeid2msg,
-         path=ARTIFACT_DIR + "graph_4_5")
-
-    test(inference_data=graph_4_6,
-         memory=memory,
-         gnn=gnn,
-         link_pred=link_pred,
-         neighbor_loader=neighbor_loader,
-         nodeid2msg=nodeid2msg,
-         path=ARTIFACT_DIR + "graph_4_6")
-
-    test(inference_data=graph_4_7,
-         memory=memory,
-         gnn=gnn,
-         link_pred=link_pred,
-         neighbor_loader=neighbor_loader,
-         nodeid2msg=nodeid2msg,
-         path=ARTIFACT_DIR + "graph_4_7")
+    print("[Test] All reconstruction runs finished.")

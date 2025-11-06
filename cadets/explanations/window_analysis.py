@@ -20,6 +20,7 @@ import os
 from typing import Dict, List, Tuple
 
 import torch
+from tqdm import tqdm
 
 try:
     from ..config import ARTIFACT_DIR
@@ -125,7 +126,7 @@ def run_pipeline() -> Dict[str, object]:
     window_contexts_map: Dict[Tuple[int, int, str], Dict[int, utils.EventContext]] = {
         window: {} for window in attack_windows
     }
-    for idx, context in attack_contexts.items():
+    for idx, context in tqdm(list(attack_contexts.items()), desc="Indexing attack contexts", leave=False):
         for window in attack_windows:
             start_ns, end_ns, _ = window
             if start_ns <= context.timestamp <= end_ns:
@@ -134,7 +135,7 @@ def run_pipeline() -> Dict[str, object]:
 
     window_summaries: List[Dict[str, object]] = []
 
-    for start_ns, end_ns, path in attack_windows:
+    for start_ns, end_ns, path in tqdm(attack_windows, desc="Analyzing attack windows", leave=False):
         contexts = window_contexts_map.get((start_ns, end_ns, path), {})
         if not contexts:
             continue
@@ -153,7 +154,9 @@ def run_pipeline() -> Dict[str, object]:
         pg_metrics: List[Dict[str, float]] = []
         gnn_metrics: List[Dict[str, float]] = []
 
-        for _, context in sorted_events:
+        window_name = os.path.basename(path)
+
+        for _, context in tqdm(sorted_events, desc=f"PG explainer {window_name}", leave=False):
             pg_metrics.append(
                 pg_explainer.explain_event(context, gnn, link_pred, pg_algo, device)
             )
@@ -164,7 +167,7 @@ def run_pipeline() -> Dict[str, object]:
         if MAX_GNN_EVENTS > 0:
             high_loss_events = high_loss_events[:MAX_GNN_EVENTS]
 
-        for _, context in high_loss_events:
+        for _, context in tqdm(high_loss_events, desc=f"GNN explainer {window_name}", leave=False):
             gnn_metrics.append(
                 gnn_explainer.explain_event(context, gnn, link_pred, device)
             )

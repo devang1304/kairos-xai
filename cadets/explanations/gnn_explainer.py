@@ -31,7 +31,7 @@ def explain_event(
         model_config=ModelConfig(
             mode="multiclass_classification",
             task_level="edge",
-            return_type="logits",
+            return_type="raw",
         ),
     )
 
