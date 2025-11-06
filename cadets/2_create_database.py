@@ -8,6 +8,15 @@ import hashlib
 from config import *
 from kairos_utils import *
 
+# List of attack files to be investigated
+# The time windows of the following attacks are as follows:
+"""
+    2018_04_06 11_00 - 2018_04_06 12_08
+    2018_04_11 15_08 - 2018_04_11 15_15
+    2018_04_12 14_00 - 2018_04_12 14_38
+    2018_04_13 09_04 - 2018_04_13 09_15
+"""
+
 FILELIST = [
     'ta1-cadets-e3-official.json',
     'ta1-cadets-e3-official.json.1',

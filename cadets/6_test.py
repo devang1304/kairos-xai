@@ -45,37 +45,50 @@ def test(inference_data,
     total_loss = 0
     edge_list = []
 
-    unique_nodes = torch.tensor([]).to(device=device)
+    unique_nodes = torch.empty(0, dtype=torch.long, device=device)
     total_edges = 0
 
 
-    start_time = inference_data.t[0]
+    start_time = int(inference_data.t[0].item())
     event_count = 0
     pos_o = []
 
     # Record the running time to evaluate the performance
     start = time.perf_counter()
 
-    loader = TemporalDataLoader(inference_data, batch_size=BATCH, shuffle=False)
+    loader = TemporalDataLoader(
+        inference_data,
+        batch_size=BATCH,
+        shuffle=False,
+        pin_memory=(device.type == "cuda"),
+    )
 
     for batch in loader: 
-        src, pos_dst, t, msg = batch.src, batch.dst, batch.t, batch.msg
+        src = batch.src.to(device=device, non_blocking=True)
+        pos_dst = batch.dst.to(device=device, non_blocking=True)
+        t_cpu = batch.t
+        t = t_cpu.to(device=device, non_blocking=True)
+        msg_cpu = batch.msg
+        msg = msg_cpu.to(device=device, non_blocking=True)
         unique_nodes = torch.cat([unique_nodes, src, pos_dst]).unique()
-        total_edges += BATCH
+        total_edges += src.size(0)
 
         n_id = torch.cat([src, pos_dst]).unique()
         n_id, edge_index, e_id = neighbor_loader(n_id)
         assoc[n_id] = torch.arange(n_id.size(0), device=device)
 
         z, last_update = memory(n_id)
-        z = gnn(z, last_update, edge_index, inference_data.t[e_id], inference_data.msg[e_id])
+        e_id_cpu = e_id.cpu()
+        edge_t = inference_data.t[e_id_cpu].to(device=device, non_blocking=True)
+        edge_msg = inference_data.msg[e_id_cpu].to(device=device, non_blocking=True)
+        z = gnn(z, last_update, edge_index, edge_t, edge_msg)
 
         pos_out = link_pred(z[assoc[src]], z[assoc[pos_dst]])
 
         pos_o.append(pos_out)
         y_pred = torch.cat([pos_out], dim=0)
         y_true = []
-        for m in msg:
+        for m in msg_cpu:
             l = tensor_find(m[node_embedding_dim:-node_embedding_dim], 1) - 1
             y_true.append(l)
         y_true = torch.tensor(y_true).to(device=device)
@@ -97,8 +110,8 @@ def test(inference_data,
 
             srcmsg = str(nodeid2msg[srcnode])
             dstmsg = str(nodeid2msg[dstnode])
-            t_var = int(t[i])
-            edgeindex = tensor_find(msg[i][node_embedding_dim:-node_embedding_dim], 1)
+            t_var = int(t_cpu[i].item())
+            edgeindex = tensor_find(msg_cpu[i][node_embedding_dim:-node_embedding_dim], 1)
             edge_type = rel2id[edgeindex]
             loss = each_edge_loss[i]
 
@@ -114,9 +127,9 @@ def test(inference_data,
             edge_list.append(temp_dic)
 
         event_count += len(batch.src)
-        if t[-1] > start_time + time_window_size:
+        if int(t_cpu[-1].item()) > start_time + time_window_size:
             # Here is a checkpoint, which records all edge losses in the current time window
-            time_interval = ns_time_to_datetime_US(start_time) + "~" + ns_time_to_datetime_US(t[-1])
+            time_interval = ns_time_to_datetime_US(start_time) + "~" + ns_time_to_datetime_US(int(t_cpu[-1].item()))
 
             end = time.perf_counter()
             time_with_loss[time_interval] = {'loss': loss,
@@ -139,7 +152,7 @@ def test(inference_data,
                 log.write("\n")
             event_count = 0
             total_loss = 0
-            start_time = t[-1]
+            start_time = int(t_cpu[-1].item())
             log.close()
             edge_list.clear()
 
@@ -147,13 +160,13 @@ def test(inference_data,
 
 def load_data():
     # graph_4_3 - graph_4_5 will be used to initialize node IDF scores.
-    graph_4_3 = torch.load(GRAPHS_DIR + "graph_4_3.TemporalData.simple").to(device=device)
-    graph_4_4 = torch.load(GRAPHS_DIR + "graph_4_4.TemporalData.simple").to(device=device)
-    graph_4_5 = torch.load(GRAPHS_DIR + "graph_4_5.TemporalData.simple").to(device=device)
+    graph_4_3 = torch.load(GRAPHS_DIR + "graph_4_3.TemporalData.simple")
+    graph_4_4 = torch.load(GRAPHS_DIR + "graph_4_4.TemporalData.simple")
+    graph_4_5 = torch.load(GRAPHS_DIR + "graph_4_5.TemporalData.simple")
 
     # Testing set
-    graph_4_6 = torch.load(GRAPHS_DIR + "graph_4_6.TemporalData.simple").to(device=device)
-    graph_4_7 = torch.load(GRAPHS_DIR + "graph_4_7.TemporalData.simple").to(device=device)
+    graph_4_6 = torch.load(GRAPHS_DIR + "graph_4_6.TemporalData.simple")
+    graph_4_7 = torch.load(GRAPHS_DIR + "graph_4_7.TemporalData.simple")
 
     return [graph_4_3, graph_4_4, graph_4_5, graph_4_6, graph_4_7]
     return graph_4_6
@@ -170,8 +183,18 @@ if __name__ == "__main__":
     graph_4_3, graph_4_4, graph_4_5, graph_4_6, graph_4_7 = load_data()
     # graph_4_6 = load_data()
 
+    max_nodes = 0
+    for g in [graph_4_3, graph_4_4, graph_4_5, graph_4_6, graph_4_7]:
+        candidate = getattr(g, "num_nodes", None)
+        if candidate:
+            max_nodes = max(max_nodes, int(candidate))
+        else:
+            max_nodes = max(max_nodes, int(torch.cat([g.src, g.dst]).max().item()) + 1)
+    configure_node_capacity(max_nodes)
+
     # load trained model
-    memory, gnn, link_pred, neighbor_loader = torch.load(f"{MODELS_DIR}models.pt",map_location=device)
+    memory, gnn, link_pred, _neighbor_loader = torch.load(f"{MODELS_DIR}models.pt", map_location=device)
+    neighbor_loader = LastNeighborLoader(max_node_num, size=neighbor_size, device=device)
 
     # Reconstruct the edges in each day
     test(inference_data=graph_4_3,

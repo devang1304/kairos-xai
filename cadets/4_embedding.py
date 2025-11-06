@@ -52,32 +52,31 @@ def gen_feature(cur):
     # Firstly obtain all node labels
     nodeid2msg = gen_nodeid2msg(cur=cur)
 
-    # Construct the hierarchical representation for each node label
-    node_msg_dic_list = []
-    for i in tqdm(nodeid2msg.keys()):
-        if type(i) == int:
-            higlist = []
-            if 'netflow' in nodeid2msg[i].keys():
-                higlist = ['netflow']
-                higlist += ip2higlist(nodeid2msg[i]['netflow'])
+    int_ids = [i for i in nodeid2msg.keys() if isinstance(i, int)]
+    if not int_ids:
+        raise ValueError("nodeid2msg did not return any integer node identifiers.")
+    max_node_id = max(int_ids)
+    node2higvec = np.zeros((max_node_id + 1, node_embedding_dim), dtype=np.float32)
 
-            if 'file' in nodeid2msg[i].keys():
-                higlist = ['file']
-                higlist += path2higlist(nodeid2msg[i]['file'])
-
-            if 'subject' in nodeid2msg[i].keys():
-                higlist = ['subject']
-                higlist += path2higlist(nodeid2msg[i]['subject'])
-            if higlist:
-                node_msg_dic_list.append(list2str(higlist))
-
-    # Featurize the hierarchical node labels
     FH_string = FeatureHasher(n_features=node_embedding_dim, input_type="string")
-    node2higvec=[]
-    for i in tqdm(node_msg_dic_list):
-        vec=FH_string.transform([[i]]).toarray()
-        node2higvec.append(vec)
-    node2higvec = np.array(node2higvec).reshape([-1, node_embedding_dim])
+    for node_id in tqdm(int_ids):
+        higlist = []
+        if 'netflow' in nodeid2msg[node_id].keys():
+            higlist = ['netflow']
+            higlist += ip2higlist(nodeid2msg[node_id]['netflow'])
+
+        if 'file' in nodeid2msg[node_id].keys():
+            higlist = ['file']
+            higlist += path2higlist(nodeid2msg[node_id]['file'])
+
+        if 'subject' in nodeid2msg[node_id].keys():
+            higlist = ['subject']
+            higlist += path2higlist(nodeid2msg[node_id]['subject'])
+
+        if higlist:
+            vec = FH_string.transform([[list2str(higlist)]]).toarray().astype(np.float32)
+            node2higvec[node_id] = vec.reshape(-1)
+
     torch.save(node2higvec, ARTIFACT_DIR + "node2higvec")
     return node2higvec
 

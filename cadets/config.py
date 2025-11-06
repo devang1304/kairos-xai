@@ -5,7 +5,7 @@
 ########################################################
 
 # The directory of the raw logs
-RAW_DIR = "/Volumes/Projects/Research/KAIROS/data/cadets/"
+RAW_DIR = "/mnt/data/repos/xai-kairos/data/"
 
 # The directory to save all artifacts
 ARTIFACT_DIR = "artifact/"
@@ -32,7 +32,7 @@ MALICIOUS_DIR = ARTIFACT_DIR + "malicious/"
 ########################################################
 
 # Database name
-DATABASE = 'tc_cadet_dataset_db_001'
+DATABASE = 'tc_cadet_dataset_db'
 
 # Only config this setting when you have the problem mentioned
 # in the Troubleshooting section in settings/environment-settings.md.
@@ -103,13 +103,13 @@ rel2id = {
 node_embedding_dim = 16
 
 # Node State Dimension
-node_state_dim = 100
+node_state_dim = 192
 
 # Neighborhood Sampling Size
-neighbor_size = 20
+neighbor_size = 64
 
 # Edge Embedding Dimension
-edge_dim = 100
+edge_dim = 128
 
 # The time encoding Dimension
 time_dim = 100
@@ -125,16 +125,15 @@ time_dim = 100
 BATCH = 1024
 
 # Parameters for optimizer
-lr=0.00005
-eps=1e-08
-weight_decay=0.01
+lr = 0.0002
+eps = 1e-08
+weight_decay = 0.001
 
-epoch_num=50
+epoch_num = 100
 
 # The size of time window, 60000000000 represent 1 min in nanoseconds.
 # The default setting is 15 minutes.
-time_window_size = 60000000000 * 2
-
+time_window_size = 60000000000 * 15
 
 ########################################################
 #
@@ -144,3 +143,4 @@ time_window_size = 60000000000 * 2
 
 beta_day6 = 100
 beta_day7 = 100
+
