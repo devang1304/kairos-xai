@@ -33,16 +33,19 @@ def train_pg_explainer(
     if contexts is None:
         contexts = utils.compute_event_contexts(data, memory, gnn, link_pred, train_indices, device=device)
 
-    algorithm = PGExplainerAlgo(epochs=PG_EPOCHS, lr=PG_LR)
-    algorithm.model_config = ModelConfig(
-        mode="multiclass_classification",
-        task_level="edge",
-        return_type="raw",
-    )
-    algorithm.explainer_config = ExplainerConfig(
-        explanation_type="phenomenon",
-        node_mask_type=None,
-        edge_mask_type="object",
+    algorithm = PGExplainerAlgo(
+        epochs=PG_EPOCHS,
+        lr=PG_LR,
+        model_config=ModelConfig(
+            mode="multiclass_classification",
+            task_level="edge",
+            return_type="raw",
+        ),
+        explainer_config=ExplainerConfig(
+            explanation_type="phenomenon",
+            node_mask_type=None,
+            edge_mask_type="object",
+        ),
     )
 
     for epoch in tqdm(range(PG_EPOCHS), desc="PGExplainer epochs", leave=False):
