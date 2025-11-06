@@ -35,11 +35,7 @@ def replace_path_name(path_name):
 
 
 # Users should manually put the detected anomalous time windows here
-attack_list = []
-
-files = os.listdir(f"{ARTIFACT_DIR}/graph_4_6_m")
-for f in files:
-    attack_list.append(f"{ARTIFACT_DIR}/graph_4_6_m/{f}")
+attack_list = fetch_attack_list()
 
 
 original_edges_count = 0

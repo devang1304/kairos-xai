@@ -147,7 +147,7 @@ dmypy.json
 # =========================
 # Project‐specific
 data/
-artifact/
+artifact**
 docs/
 
 # Secret config

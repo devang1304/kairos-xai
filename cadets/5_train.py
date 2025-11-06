@@ -35,7 +35,7 @@ def concat_temporal(graphs):
 
     # Preserve any additional attributes set on the first graph.
     canonical_keys = {"src", "dst", "t", "msg"}
-    for key in graphs[0].keys:
+    for key in graphs[0].keys():
         if key in canonical_keys:
             continue
         try:
@@ -47,20 +47,6 @@ def concat_temporal(graphs):
         except Exception:
             merged[key] = value
 
-    # Derive num_nodes directly from merged edges when possible.
-    node_ids = torch.cat([merged.src, merged.dst], dim=0)
-    derived_count = int(node_ids.max().item()) + 1 if node_ids.numel() > 0 else None
-    existing_counts = []
-    for g in graphs:
-        count = getattr(g, "num_nodes", None)
-        if isinstance(count, (int, float)) and count > 0:
-            existing_counts.append(int(count))
-    candidates = []
-    if derived_count is not None:
-        candidates.append(derived_count)
-    candidates.extend(existing_counts)
-    if candidates:
-        merged.num_nodes = max(candidates)
     return merged
 
 # Setting for logging
