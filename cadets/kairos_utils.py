@@ -27,7 +27,10 @@ import gc
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from config import *
+try:
+    from .config import *
+except ImportError:  # pragma: no cover
+    from config import *
 
 
 def ns_time_to_datetime(ns):

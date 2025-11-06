@@ -20,17 +20,27 @@ ATTACK_LIST = fetch_attack_list()
 
 
 def classifier_evaluation(y_test, y_test_pred):
-    tn, fp, fn, tp =confusion_matrix(y_test, y_test_pred).ravel()
+    cm = confusion_matrix(y_test, y_test_pred, labels=[0, 1])
+    if cm.shape != (2, 2):
+        tn = fp = fn = tp = 0
+    else:
+        tn, fp, fn, tp = cm.ravel()
     logger.info(f'tn: {tn}')
     logger.info(f'fp: {fp}')
     logger.info(f'fn: {fn}')
     logger.info(f'tp: {tp}')
 
-    precision=tp/(tp+fp)
-    recall=tp/(tp+fn)
-    accuracy=(tp+tn)/(tp+tn+fp+fn)
-    fscore=2*(precision*recall)/(precision+recall)
-    auc_val=roc_auc_score(y_test, y_test_pred)
+    precision = (tp / (tp + fp)) if (tp + fp) else 0.0
+    recall = (tp / (tp + fn)) if (tp + fn) else 0.0
+    accuracy = ((tp + tn) / max(tp + tn + fp + fn, 1)) if (tp + tn + fp + fn) else 0.0
+    if precision + recall:
+        fscore = 2 * (precision * recall) / (precision + recall)
+    else:
+        fscore = 0.0
+    try:
+        auc_val = roc_auc_score(y_test, y_test_pred)
+    except ValueError:
+        auc_val = 0.0
     logger.info(f"precision: {precision}")
     logger.info(f"recall: {recall}")
     logger.info(f"fscore: {fscore}")

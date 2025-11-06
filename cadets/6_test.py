@@ -42,11 +42,11 @@ def test(inference_data,
     neighbor_loader.reset_state()  # Start with an empty graph.
 
     time_with_loss = {}  # key: time，  value： the losses
-    total_loss = 0
+    total_loss = 0.0
     edge_list = []
 
-    unique_nodes = torch.empty(0, dtype=torch.long, device=device)
-    total_edges = 0
+    window_unique_nodes = torch.empty(0, dtype=torch.long, device=device)
+    window_edge_count = 0
 
 
     start_time = int(inference_data.t[0].item())
@@ -70,8 +70,8 @@ def test(inference_data,
         t = t_cpu.to(device=device, non_blocking=True)
         msg_cpu = batch.msg
         msg = msg_cpu.to(device=device, non_blocking=True)
-        unique_nodes = torch.cat([unique_nodes, src, pos_dst]).unique()
-        total_edges += src.size(0)
+        window_unique_nodes = torch.cat([window_unique_nodes, src, pos_dst]).unique()
+        window_edge_count += src.size(0)
 
         n_id = torch.cat([src, pos_dst]).unique()
         n_id, edge_index, e_id = neighbor_loader(n_id)
@@ -113,10 +113,10 @@ def test(inference_data,
             t_var = int(t_cpu[i].item())
             edgeindex = tensor_find(msg_cpu[i][node_embedding_dim:-node_embedding_dim], 1)
             edge_type = rel2id[edgeindex]
-            loss = each_edge_loss[i]
+            edge_loss_value = each_edge_loss[i]
 
             temp_dic = {}
-            temp_dic['loss'] = float(loss)
+            temp_dic['loss'] = float(edge_loss_value)
             temp_dic['srcnode'] = srcnode
             temp_dic['dstnode'] = dstnode
             temp_dic['srcmsg'] = srcmsg
@@ -132,27 +132,31 @@ def test(inference_data,
             time_interval = ns_time_to_datetime_US(start_time) + "~" + ns_time_to_datetime_US(int(t_cpu[-1].item()))
 
             end = time.perf_counter()
-            time_with_loss[time_interval] = {'loss': loss,
-
-                                             'nodes_count': len(unique_nodes),
-                                             'total_edges': total_edges,
-                                             'costed_time': (end - start)}
+            avg_window_loss = total_loss / event_count if event_count else 0.0
+            edge_loss_sum = sum(e['loss'] for e in edge_list)
+            avg_edge_loss = edge_loss_sum / len(edge_list) if edge_list else 0.0
+            nodes_count = int(window_unique_nodes.numel())
+            time_with_loss[time_interval] = {
+                'loss': avg_window_loss,
+                'nodes_count': nodes_count,
+                'total_edges': window_edge_count,
+                'costed_time': (end - start)
+            }
 
             log = open(path + "/" + time_interval + ".txt", 'w')
 
-            for e in edge_list:
-                loss += e['loss']
-
-            loss = loss / event_count
             logger.info(
-                f'Time: {time_interval}, Loss: {loss:.4f}, Nodes_count: {len(unique_nodes)}, Edges_count: {event_count}, Cost Time: {(end - start):.2f}s')
+                f'Time: {time_interval}, Loss: {avg_edge_loss:.4f}, Nodes_count: {nodes_count}, Edges_count: {event_count}, Cost Time: {(end - start):.2f}s')
             edge_list = sorted(edge_list, key=lambda x: x['loss'], reverse=True)  # Rank the results based on edge losses
             for e in edge_list:
                 log.write(str(e))
                 log.write("\n")
             event_count = 0
-            total_loss = 0
+            total_loss = 0.0
+            window_edge_count = 0
+            window_unique_nodes = torch.empty(0, dtype=torch.long, device=device)
             start_time = int(t_cpu[-1].item())
+            start = time.perf_counter()
             log.close()
             edge_list.clear()
 

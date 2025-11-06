@@ -18,9 +18,12 @@ logger.addHandler(file_handler)
 def cal_anomaly_loss(loss_list, edge_list):
     if len(loss_list) != len(edge_list):
         print("error!")
-        return 0, 0, set(), set()
+        return 0, 0.0, set(), set()
+    if not loss_list:
+        return 0, 0.0, set(), set()
+
     count = 0
-    loss_sum = 0
+    loss_sum = 0.0
     loss_std = std(loss_list)
     loss_mean = mean(loss_list)
     edge_set = set()
@@ -40,7 +43,8 @@ def cal_anomaly_loss(loss_list, edge_list):
             node_set.add(src_node)
             node_set.add(dst_node)
             edge_set.add(edge_list[i][0] + edge_list[i][1])
-    return count, loss_sum / count, node_set, edge_set
+    avg_loss = loss_sum / count if count else 0.0
+    return count, avg_loss, node_set, edge_set
 
 def compute_IDF():
     node_IDF = {}
@@ -180,9 +184,12 @@ def anomalous_queue_construction(node_IDF, tw_list, graph_dir_path):
         index_count += 1
 
 
+        edge_count = len(edge_list)
+        anomaly_percentage = (count / edge_count) if edge_count else 0.0
+
         logger.info(f"Average loss: {loss_avg}")
         logger.info(f"Num of anomalous edges within the time window: {count}")
-        logger.info(f"Percentage of anomalous edges: {count / len(edge_list)}")
+        logger.info(f"Percentage of anomalous edges: {anomaly_percentage}")
         logger.info(f"Anomalous node count: {len(node_set)}")
         logger.info(f"Anomalous edge count: {len(edge_set)}")
         logger.info("**************************************************")
