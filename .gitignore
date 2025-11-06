@@ -148,6 +148,7 @@ dmypy.json
 # Project‐specific
 data/
 artifact/
+docs/
 
 # Secret config
 secrets.toml
