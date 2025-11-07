@@ -159,27 +159,18 @@ class GraphMaskExplainer:
             ordered_contexts = ordered_contexts[:top_k_events]
 
         results: List[GraphMaskResult] = []
-        deferred: List[Tuple[int, EventContext]] = []
 
-        for item in tqdm(ordered_contexts, desc="GraphMask events", leave=False):
+        for idx, item in enumerate(tqdm(ordered_contexts, desc="GraphMask events", leave=False), start=1):
             if not ensure_gpu_space():
-                deferred.append(item)
+                print(
+                    f"[warn] Insufficient GPU memory for GraphMask event; skipping "
+                    f"context {item[1].event_index}."
+                )
                 continue
             _, context = item
-            log_cuda_memory(f"GraphMask event {context.event_index}")
+            log_cuda_memory(f"GraphMask event {context.event_index}", step=idx)
             wrapper = wrapper_factory(context)
             results.append(self.explain_event(context, wrapper, device))
-
-        if deferred:
-            print(f"[warn] Deferring {len(deferred)} GraphMask event(s) due to low GPU memory.")
-            torch.cuda.empty_cache()
-            for item in deferred:
-                if not ensure_gpu_space():
-                    print("[warn] GPU memory still low; processing deferred GraphMask event anyway.")
-                _, context = item
-                log_cuda_memory(f"GraphMask deferred event {context.event_index}")
-                wrapper = wrapper_factory(context)
-                results.append(self.explain_event(context, wrapper, device))
         return results
 
     @staticmethod

@@ -29,6 +29,7 @@ _LOGGER = logging.getLogger(__name__)
 _GPU_FALLBACK_WARNED = False
 _GPU_FALLBACK_ACTIVE = False
 _GPU_BUFFER_BYTES = int(os.environ.get("KAIROS_CONTEXT_GPU_BUFFER", 512 * 1024**2))
+_CUDA_LOG_EVERY = int(os.environ.get("KAIROS_CUDA_LOG_EVERY", 0))
 
 
 def _move_to_cuda(tensor: Tensor) -> Tensor:
@@ -56,8 +57,8 @@ def _store_tensor(tensor: Optional[Tensor]) -> Optional[Tensor]:
     result = tensor.detach()
     target_mode = _CONTEXT_STORAGE_MODE
     if target_mode == "auto":
-        target_mode = "gpu" if torch.cuda.is_available() else "cpu"
-    if target_mode == "gpu":
+        target_mode = "cpu"
+    if target_mode == "gpu" and not _GPU_FALLBACK_ACTIVE:
         return _move_to_cuda(result)
     if target_mode == "cpu_pin":
         result = result.to("cpu")
@@ -108,9 +109,11 @@ def ensure_gpu_space(buffer_bytes: Optional[int] = None) -> bool:
     return False
 
 
-def log_cuda_memory(stage: str) -> None:
+def log_cuda_memory(stage: str, step: Optional[int] = None) -> None:
     """Print current CUDA memory stats for visibility."""
     if not torch.cuda.is_available():
+        return
+    if _CUDA_LOG_EVERY > 0 and step is not None and step % _CUDA_LOG_EVERY != 0:
         return
     device = torch.device("cuda")
     allocated = torch.cuda.memory_allocated(device)

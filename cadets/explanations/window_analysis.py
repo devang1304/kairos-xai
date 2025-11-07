@@ -153,10 +153,12 @@ def run_pipeline() -> Dict[str, object]:
     logger = _setup_logger()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[info] Using device: {device}")
-    storage_mode = utils._CONTEXT_STORAGE_MODE  # type: ignore[attr-defined]
-    if storage_mode == "auto":
-        storage_mode = "gpu" if torch.cuda.is_available() else "cpu"
-    print(f"[info] Context tensors will be cached on {storage_mode.upper()} (override via KAIROS_CONTEXT_DEVICE).")
+    configured_mode = utils._CONTEXT_STORAGE_MODE  # type: ignore[attr-defined]
+    effective_mode = "cpu" if configured_mode == "auto" else configured_mode
+    print(
+        f"[info] Context tensors will be cached on {effective_mode.upper()} "
+        "(override via KAIROS_CONTEXT_DEVICE)."
+    )
     print(f"[info] Loading Kairos model and graph for label '{DEFAULT_GRAPH_LABEL}'...")
     memory, gnn, link_pred = utils.load_model(device=device)
     train_data = utils.load_temporal_graph(DEFAULT_GRAPH_LABEL)
@@ -215,20 +217,26 @@ def run_pipeline() -> Dict[str, object]:
             va_serialised = []
 
             pending: Deque[utils.EventContext] = deque(related_contexts)
-            deferred_attempted = False  # ensure we only retry once after clearing cache
+            gnn_event_counter = 0
 
             while pending:
                 ctx = pending.popleft()
-                if not ensure_gpu_space():
-                    if not deferred_attempted:
-                        print("[warn] Low GPU memory; retrying node contexts after clearing cache.")
+                skip_event = False
+                for attempt in range(2):
+                    if ensure_gpu_space():
+                        break
+                    if attempt == 0:
+                        print("[warn] Low GPU memory; retrying node context after clearing cache.")
                         torch.cuda.empty_cache()
-                        pending.appendleft(ctx)
-                        deferred_attempted = True
                         continue
-                    print("[warn] Persistently low GPU memory; proceeding with GNNExplainer anyway.")
+                    print(f"[warn] Skipping GNNExplainer for event {ctx.event_index} due to persistent low GPU memory.")
+                    skip_event = True
+                    break
+                if skip_event:
+                    continue
 
-                log_cuda_memory(f"GNNExplainer event {ctx.event_index}")
+                gnn_event_counter += 1
+                log_cuda_memory(f"GNNExplainer event {ctx.event_index}", step=gnn_event_counter)
                 gnn_metrics = gnn_explainer.explain_event(ctx, gnn, link_pred, device)
                 gnn_results.append(
                     {
@@ -249,18 +257,20 @@ def run_pipeline() -> Dict[str, object]:
                 )
 
                 wrapper = TemporalLinkWrapper(gnn, link_pred, ctx, device)
-                log_cuda_memory(f"VA-TG event {ctx.event_index}")
-                if not ensure_gpu_space():
-                    if not deferred_attempted:
-                        print("[warn] Low GPU memory before VA-TG; retrying after cache clear.")
+                log_cuda_memory(f"VA-TG event {ctx.event_index}", step=gnn_event_counter)
+                skip_va = False
+                for attempt in range(2):
+                    if ensure_gpu_space():
+                        break
+                    if attempt == 0:
+                        print("[warn] Low GPU memory before VA-TG; retrying after clearing cache.")
                         torch.cuda.empty_cache()
-                        if ensure_gpu_space():
-                            deferred_attempted = True
-                        else:
-                            print("[warn] Still low after retry; running VA-TG explainer anyway.")
-                            deferred_attempted = True
-                    else:
-                        print("[warn] Persistently low GPU memory; continuing with VA-TG explainer.")
+                        continue
+                    print(f"[warn] Skipping VA-TG explainer for event {ctx.event_index} due to persistent low GPU memory.")
+                    skip_va = True
+                    break
+                if skip_va:
+                    continue
 
                 va_result = temporal_explainer.explain_event(ctx, wrapper, device)
                 va_event_results.append(va_result)
@@ -276,12 +286,6 @@ def run_pipeline() -> Dict[str, object]:
                         "loss_history": va_result.loss_history,
                     }
                 )
-
-                if not pending and deferred:
-                    print("[warn] Processing deferred node contexts after freeing GPU memory.")
-                    torch.cuda.empty_cache()
-                    pending = deferred
-                    deferred = deque()
 
             va_aggregate = va_tg_explainer.VATGExplainer.aggregate(va_event_results)
 
