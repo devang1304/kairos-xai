@@ -150,6 +150,8 @@ class GraphMaskExplainer:
         wrapper_factory,
         device: torch.device,
         top_k_events: int | None = None,
+        fallback_wrapper_factory=None,
+        fallback_device: torch.device | None = None,
     ) -> List[GraphMaskResult]:
         """
         Run GraphMask on a selection of events and aggregate the results.
@@ -162,6 +164,14 @@ class GraphMaskExplainer:
 
         for idx, item in enumerate(tqdm(ordered_contexts, desc="GraphMask events", leave=False), start=1):
             if not ensure_gpu_space():
+                if fallback_wrapper_factory is not None and fallback_device is not None:
+                    print(
+                        f"[warn] Insufficient GPU memory for GraphMask event {item[1].event_index}; "
+                        "falling back to CPU."
+                    )
+                    wrapper = fallback_wrapper_factory(item[1], fallback_device)
+                    results.append(self.explain_event(item[1], wrapper, fallback_device))
+                    continue
                 print(
                     f"[warn] Insufficient GPU memory for GraphMask event; skipping "
                     f"context {item[1].event_index}."
@@ -169,7 +179,7 @@ class GraphMaskExplainer:
                 continue
             _, context = item
             log_cuda_memory(f"GraphMask event {context.event_index}", step=idx)
-            wrapper = wrapper_factory(context)
+            wrapper = wrapper_factory(context, device)
             results.append(self.explain_event(context, wrapper, device))
         return results
 

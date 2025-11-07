@@ -13,6 +13,7 @@ Workflow (no CLI arguments):
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -24,8 +25,10 @@ from tqdm import tqdm
 
 try:
     from ..config import ARTIFACT_DIR, include_edge_type, node_embedding_dim
+    from ..kairos_utils import ns_time_to_datetime_US
 except ImportError:  # pragma: no cover
     from config import ARTIFACT_DIR, include_edge_type, node_embedding_dim
+    from kairos_utils import ns_time_to_datetime_US
 
 from . import gnn_explainer, graphmask_explainer, utils, va_tg_explainer
 from .utils import TemporalLinkWrapper, ensure_gpu_space, log_cuda_memory
@@ -39,6 +42,7 @@ THRESHOLD_MULTIPLIER = 1.5
 TOP_K_EDGE_EXPLANATIONS = 10
 MIN_EDGE_WEIGHT = 0.1
 MIN_NODE_SCORE = 0.1
+WARMUP_MARGIN_SECONDS = int(os.environ.get("KAIROS_EXPLAIN_WARMUP_SEC", 2 * 3600))
 
 OUTPUT_DIR = os.path.join(ARTIFACT_DIR, "explanations")
 
@@ -135,7 +139,6 @@ def _top_edge_explanations(
 
 
 def _collect_windows(train_data, memory, gnn, link_pred, device):
-    windows: List[Tuple[int, int, str]]
     if USE_ATTACK_WINDOWS:
         windows = [
             interval
@@ -146,7 +149,60 @@ def _collect_windows(train_data, memory, gnn, link_pred, device):
         start_ns = int(train_data.t.min().item())
         end_ns = int(train_data.t.max().item())
         windows = [(start_ns, end_ns, f"graph_{DEFAULT_GRAPH_LABEL}_full_day")]
-    return utils.group_contexts_by_windows(train_data, memory, gnn, link_pred, windows, device=device)
+
+    cached = utils.load_context_cache(DEFAULT_GRAPH_LABEL, windows)
+    if cached is not None:
+        print("[info] Loaded cached event contexts for selected windows.")
+        return cached
+
+    if not windows:
+        return {}
+
+    earliest_start = min(start for start, _, _ in windows)
+    latest_end = max(end for _, end, _ in windows)
+
+    margin_ns = WARMUP_MARGIN_SECONDS * 1_000_000_000
+    data_min = int(train_data.t.min().item())
+    data_max = int(train_data.t.max().item())
+    slice_start_ns = max(data_min, earliest_start - margin_ns)
+    slice_end_ns = min(data_max, latest_end)
+
+    print(
+        f"[info] Streaming slice from {ns_time_to_datetime_US(slice_start_ns)} "
+        f"to {ns_time_to_datetime_US(slice_end_ns)} for context collection."
+    )
+
+    sliced_data, _, _ = utils.slice_temporal_graph(train_data, slice_start_ns, slice_end_ns)
+    context_start_offset = int(
+        torch.searchsorted(sliced_data.t, torch.tensor(earliest_start, device=sliced_data.t.device))
+    )
+
+    contexts_by_window: Dict[Tuple[int, int, str], List[utils.EventContext]] = {window: [] for window in windows}
+
+    def _predicate(ctx: utils.EventContext) -> bool:
+        included = False
+        for window in windows:
+            start_ns, end_ns, _ = window
+            if start_ns <= ctx.timestamp <= end_ns:
+                contexts_by_window[window].append(ctx)
+                included = True
+        return included
+
+    # Exhaust generator to populate contexts_by_window; actual yielded values aren't needed.
+    for _ in utils.stream_event_contexts(
+        sliced_data,
+        memory,
+        gnn,
+        link_pred,
+        device=device,
+        start_offset=context_start_offset,
+        predicate=_predicate,
+    ):
+        pass
+
+    print("[info] Persisting window contexts to cache for future runs.")
+    utils.save_context_cache(DEFAULT_GRAPH_LABEL, windows, contexts_by_window)
+    return contexts_by_window
 
 
 def run_pipeline() -> Dict[str, object]:
@@ -172,6 +228,10 @@ def run_pipeline() -> Dict[str, object]:
 
     masker = graphmask_explainer.GraphMaskExplainer()
     temporal_explainer = va_tg_explainer.VATGExplainer()
+    cpu_device = torch.device("cpu")
+    gnn_cpu = copy.deepcopy(gnn).to(cpu_device)
+    link_pred_cpu = copy.deepcopy(link_pred).to(cpu_device)
+    temporal_explainer_cpu = va_tg_explainer.VATGExplainer()
     print("[info] Initialised GraphMask and VA-TG explainers.")
 
     outputs: List[Dict[str, object]] = []
@@ -192,14 +252,18 @@ def run_pipeline() -> Dict[str, object]:
         if not high_loss_events:
             high_loss_events = list(enumerate(contexts[:MAX_EVENTS_PER_WINDOW]))
 
-        def _wrapper_factory(ctx: utils.EventContext) -> TemporalLinkWrapper:
-            return TemporalLinkWrapper(gnn, link_pred, ctx, device)
+        def _wrapper_factory(ctx: utils.EventContext, target_device: torch.device) -> TemporalLinkWrapper:
+            if target_device.type == "cpu":
+                return TemporalLinkWrapper(gnn_cpu, link_pred_cpu, ctx, target_device)
+            return TemporalLinkWrapper(gnn, link_pred, ctx, target_device)
 
         mask_results = masker.explain_window(
             high_loss_events,
             wrapper_factory=_wrapper_factory,
             device=device,
             top_k_events=GRAPHMASK_TOP_EVENTS,
+            fallback_wrapper_factory=_wrapper_factory,
+            fallback_device=cpu_device,
         )
         print(f"[info] GraphMask analysed {len(mask_results)} event(s) for window {window[2]}.")
         aggregated_map = graphmask_explainer.GraphMaskExplainer.aggregate(mask_results)
@@ -221,23 +285,21 @@ def run_pipeline() -> Dict[str, object]:
 
             while pending:
                 ctx = pending.popleft()
-                skip_event = False
-                for attempt in range(2):
-                    if ensure_gpu_space():
-                        break
-                    if attempt == 0:
-                        print("[warn] Low GPU memory; retrying node context after clearing cache.")
-                        torch.cuda.empty_cache()
-                        continue
-                    print(f"[warn] Skipping GNNExplainer for event {ctx.event_index} due to persistent low GPU memory.")
-                    skip_event = True
-                    break
-                if skip_event:
-                    continue
+                target_device = device
+                gnn_module = gnn
+                link_module = link_pred
+                explainer_instance = temporal_explainer
+
+                if not ensure_gpu_space():
+                    print(f"[warn] Low GPU memory for event {ctx.event_index}; falling back to CPU.")
+                    target_device = cpu_device
+                    gnn_module = gnn_cpu
+                    link_module = link_pred_cpu
+                    explainer_instance = temporal_explainer_cpu
 
                 gnn_event_counter += 1
                 log_cuda_memory(f"GNNExplainer event {ctx.event_index}", step=gnn_event_counter)
-                gnn_metrics = gnn_explainer.explain_event(ctx, gnn, link_pred, device)
+                gnn_metrics = gnn_explainer.explain_event(ctx, gnn_module, link_module, target_device)
                 gnn_results.append(
                     {
                         "event_index": ctx.event_index,
@@ -256,23 +318,15 @@ def run_pipeline() -> Dict[str, object]:
                     }
                 )
 
-                wrapper = TemporalLinkWrapper(gnn, link_pred, ctx, device)
+                wrapper = TemporalLinkWrapper(gnn_module, link_module, ctx, target_device)
                 log_cuda_memory(f"VA-TG event {ctx.event_index}", step=gnn_event_counter)
-                skip_va = False
-                for attempt in range(2):
-                    if ensure_gpu_space():
-                        break
-                    if attempt == 0:
-                        print("[warn] Low GPU memory before VA-TG; retrying after clearing cache.")
-                        torch.cuda.empty_cache()
-                        continue
-                    print(f"[warn] Skipping VA-TG explainer for event {ctx.event_index} due to persistent low GPU memory.")
-                    skip_va = True
-                    break
-                if skip_va:
-                    continue
+                if target_device.type != "cpu" and not ensure_gpu_space():
+                    print(f"[warn] Low GPU memory before VA-TG for event {ctx.event_index}; retrying on CPU.")
+                    wrapper = TemporalLinkWrapper(gnn_cpu, link_pred_cpu, ctx, cpu_device)
+                    explainer_instance = temporal_explainer_cpu
+                    target_device = cpu_device
 
-                va_result = temporal_explainer.explain_event(ctx, wrapper, device)
+                va_result = explainer_instance.explain_event(ctx, wrapper, target_device)
                 va_event_results.append(va_result)
                 va_serialised.append(
                     {

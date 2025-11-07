@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import os
 import time
@@ -13,11 +14,11 @@ from torch_geometric.nn.models.tgn import LastNeighborLoader
 from tqdm import tqdm
 
 try:
-    from ..config import GRAPHS_DIR, MODELS_DIR, neighbor_size, node_embedding_dim
+    from ..config import ARTIFACT_DIR, GRAPHS_DIR, MODELS_DIR, neighbor_size, node_embedding_dim
     from ..kairos_utils import tensor_find, datetime_to_ns_time_US, fetch_attack_list
     from .. import model
 except ImportError:  # pragma: no cover - fallback when run as script
-    from config import GRAPHS_DIR, MODELS_DIR, neighbor_size, node_embedding_dim
+    from config import ARTIFACT_DIR, GRAPHS_DIR, MODELS_DIR, neighbor_size, node_embedding_dim
     from kairos_utils import tensor_find, datetime_to_ns_time_US, fetch_attack_list
     import model
 
@@ -30,6 +31,7 @@ _GPU_FALLBACK_WARNED = False
 _GPU_FALLBACK_ACTIVE = False
 _GPU_BUFFER_BYTES = int(os.environ.get("KAIROS_CONTEXT_GPU_BUFFER", 512 * 1024**2))
 _CUDA_LOG_EVERY = int(os.environ.get("KAIROS_CUDA_LOG_EVERY", 0))
+_CACHE_DIR = os.path.join(ARTIFACT_DIR, "explanations", "cache")
 
 
 def _move_to_cuda(tensor: Tensor) -> Tensor:
@@ -113,7 +115,9 @@ def log_cuda_memory(stage: str, step: Optional[int] = None) -> None:
     """Print current CUDA memory stats for visibility."""
     if not torch.cuda.is_available():
         return
-    if _CUDA_LOG_EVERY > 0 and step is not None and step % _CUDA_LOG_EVERY != 0:
+    if _CUDA_LOG_EVERY <= 0:
+        return
+    if step is not None and step % _CUDA_LOG_EVERY != 0:
         return
     device = torch.device("cuda")
     allocated = torch.cuda.memory_allocated(device)
@@ -223,6 +227,12 @@ class TemporalLinkWrapper(torch.nn.Module):
         return self.link_pred(z[[self.src_idx]], z[[self.dst_idx]])
 
 
+def _slice_indices(timestamps: Tensor, start_ns: int, end_ns: int) -> Tuple[int, int]:
+    start_idx = int(torch.searchsorted(timestamps, torch.tensor(start_ns, device=timestamps.device)))
+    end_idx = int(torch.searchsorted(timestamps, torch.tensor(end_ns, device=timestamps.device), right=True))
+    return max(0, start_idx), min(timestamps.numel(), end_idx)
+
+
 def load_temporal_graph(label: str, root: Optional[str] = None) -> TemporalData:
     """Loads a TemporalData object for the requested day/window label."""
     root = root or GRAPHS_DIR
@@ -231,6 +241,43 @@ def load_temporal_graph(label: str, root: Optional[str] = None) -> TemporalData:
         raise FileNotFoundError(f"Temporal graph not found at {path}")
     data: TemporalData = torch.load(path)
     return data
+
+
+def slice_temporal_graph(data: TemporalData, start_ns: int, end_ns: int) -> Tuple[TemporalData, int, int]:
+    """Return a sliced TemporalData and the inclusive index bounds for start/end."""
+    start_idx, end_idx = _slice_indices(data.t, start_ns, end_ns)
+    sliced = TemporalData(
+        src=data.src[start_idx:end_idx],
+        dst=data.dst[start_idx:end_idx],
+        t=data.t[start_idx:end_idx],
+        msg=data.msg[start_idx:end_idx],
+        y=data.y[start_idx:end_idx] if hasattr(data, "y") else None,
+    )
+    return sliced, start_idx, end_idx
+
+
+def _cache_signature(windows: List[Tuple[int, int, str]]) -> str:
+    ordered = sorted((int(start), int(end)) for start, end, _ in windows)
+    payload = ";".join(f"{start}-{end}" for start, end in ordered).encode("utf-8")
+    return hashlib.sha1(payload).hexdigest()[:16]
+
+
+def _cache_path(label: str, windows: List[Tuple[int, int, str]]) -> str:
+    signature = _cache_signature(windows)
+    os.makedirs(_CACHE_DIR, exist_ok=True)
+    return os.path.join(_CACHE_DIR, f"{label}_{signature}.pt")
+
+
+def load_context_cache(label: str, windows: List[Tuple[int, int, str]]) -> Optional[Dict[Tuple[int, int, str], List["EventContext"]]]:
+    path = _cache_path(label, windows)
+    if os.path.exists(path):
+        return torch.load(path)
+    return None
+
+
+def save_context_cache(label: str, windows: List[Tuple[int, int, str]], contexts: Dict[Tuple[int, int, str], List["EventContext"]]) -> None:
+    path = _cache_path(label, windows)
+    torch.save(contexts, path)
 
 
 def load_model(
@@ -277,7 +324,7 @@ def build_event_context(
     loader = _init_neighbor_loader(device)
     loader.reset_state()
 
-    temporal_loader = TemporalDataLoader(data, batch_size=1, shuffle=False)
+    temporal_loader = TemporalDataLoader(data, batch_size=64, shuffle=False)
     processed = 0
 
     with torch.no_grad():
@@ -348,6 +395,9 @@ def stream_event_contexts(
     link_pred: torch.nn.Module,
     *,
     device: Optional[torch.device] = None,
+    start_offset: int = 0,
+    end_offset: Optional[int] = None,
+    predicate=None,
 ):
     """Yields EventContext objects for every event while streaming once."""
     device = device or model.device
@@ -359,6 +409,9 @@ def stream_event_contexts(
 
     with torch.no_grad():
         for event_index, batch in enumerate(tqdm(temporal_loader, desc="Streaming event contexts", leave=False)):
+            if end_offset is not None and event_index >= end_offset:
+                break
+
             src_cpu = batch.src
             dst_cpu = batch.dst
             t_cpu = batch.t
@@ -408,7 +461,9 @@ def stream_event_contexts(
                 raw_message=_store_tensor(msg_cpu[0]),
             )
 
-            yield context
+            if event_index >= start_offset:
+                if predicate is None or predicate(context):
+                    yield context
 
             memory.update_state(src, dst, t, msg)
             loader.insert(src, dst)
