@@ -25,10 +25,10 @@ from tqdm import tqdm
 
 try:
     from ..config import ARTIFACT_DIR, include_edge_type, node_embedding_dim
-    from ..kairos_utils import ns_time_to_datetime_US
+    from ..kairos_utils import datetime_to_ns_time_US, ns_time_to_datetime_US
 except ImportError:  # pragma: no cover
     from config import ARTIFACT_DIR, include_edge_type, node_embedding_dim
-    from kairos_utils import ns_time_to_datetime_US
+    from kairos_utils import datetime_to_ns_time_US, ns_time_to_datetime_US
 
 from . import gnn_explainer, graphmask_explainer, utils, va_tg_explainer
 from .utils import TemporalLinkWrapper, ensure_gpu_space, log_cuda_memory
@@ -43,6 +43,10 @@ TOP_K_EDGE_EXPLANATIONS = 10
 MIN_EDGE_WEIGHT = 0.1
 MIN_NODE_SCORE = 0.1
 WARMUP_MARGIN_SECONDS = int(os.environ.get("KAIROS_EXPLAIN_WARMUP_SEC", 2 * 3600))
+
+HARD_CODED_ATTACK_WINDOWS = [
+    ("2018-04-06 11:00:00", "2018-04-06 12:15:00"),
+]
 
 OUTPUT_DIR = os.path.join(ARTIFACT_DIR, "explanations")
 
@@ -140,11 +144,12 @@ def _top_edge_explanations(
 
 def _collect_windows(train_data, memory, gnn, link_pred, device):
     if USE_ATTACK_WINDOWS:
-        windows = [
-            interval
-            for interval in utils.load_attack_intervals()
-            if f"graph_{DEFAULT_GRAPH_LABEL}" in interval[2]
-        ]
+        windows: List[Tuple[int, int, str]] = []
+        for start_str, end_str in HARD_CODED_ATTACK_WINDOWS:
+            start_ns = datetime_to_ns_time_US(start_str)
+            end_ns = datetime_to_ns_time_US(end_str)
+            identifier = f"hardcoded/{start_str.replace(' ', '_')}~{end_str.replace(' ', '_')}.txt"
+            windows.append((start_ns, end_ns, identifier))
     else:
         start_ns = int(train_data.t.min().item())
         end_ns = int(train_data.t.max().item())

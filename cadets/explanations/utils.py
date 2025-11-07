@@ -15,11 +15,11 @@ from tqdm import tqdm
 
 try:
     from ..config import ARTIFACT_DIR, GRAPHS_DIR, MODELS_DIR, neighbor_size, node_embedding_dim
-    from ..kairos_utils import tensor_find, datetime_to_ns_time_US, fetch_attack_list
+    from ..kairos_utils import tensor_find
     from .. import model
 except ImportError:  # pragma: no cover - fallback when run as script
     from config import ARTIFACT_DIR, GRAPHS_DIR, MODELS_DIR, neighbor_size, node_embedding_dim
-    from kairos_utils import tensor_find, datetime_to_ns_time_US, fetch_attack_list
+    from kairos_utils import tensor_find
     import model
 
 # Controls where event context tensors are stored. Use "gpu", "cpu", or "cpu_pin";
@@ -529,71 +529,6 @@ def collect_contexts(
             if limit is not None and len(contexts) >= limit:
                 break
     return contexts
-
-
-def _timestamp_str_to_ns(text: str) -> Optional[int]:
-    text = text.strip()
-    if not text:
-        return None
-    if "." in text:
-        base, frac = text.split(".", 1)
-    else:
-        base, frac = text, ""
-    try:
-        base_ns = datetime_to_ns_time_US(base)
-    except ValueError:
-        return None
-    digits = "".join(ch for ch in frac if ch.isdigit())
-    if digits:
-        digits = (digits + "000000000")[:9]
-        base_ns += int(digits)
-    return base_ns
-
-
-def load_attack_intervals() -> List[Tuple[int, int, str]]:
-    """Returns (start_ns, end_ns, path) for known attack windows."""
-    intervals: List[Tuple[int, int, str]] = []
-    for path in fetch_attack_list():
-        name = os.path.basename(path).replace(".txt", "")
-        if "~" not in name:
-            continue
-        start_raw, end_raw = name.split("~", 1)
-        start_ns = _timestamp_str_to_ns(start_raw)
-        end_ns = _timestamp_str_to_ns(end_raw)
-        if start_ns is None or end_ns is None:
-            continue
-        intervals.append((start_ns, end_ns, path))
-    intervals.sort(key=lambda x: x[0])
-    return intervals
-
-
-def group_contexts_by_windows(
-    data: TemporalData,
-    memory: torch.nn.Module,
-    gnn: torch.nn.Module,
-    link_pred: torch.nn.Module,
-    windows: List[Tuple[int, int, str]],
-    *,
-    device: Optional[torch.device] = None,
-) -> Dict[Tuple[int, int, str], List[EventContext]]:
-    """
-    Stream contexts once and group them by attack window.
-    """
-    device = device or model.device
-
-    if not windows:
-        _LOGGER.warning("No attack windows found; skipping context streaming.")
-        return {}
-
-    buckets: Dict[Tuple[int, int, str], List[EventContext]] = {window: [] for window in windows}
-
-    for context in stream_event_contexts(data, memory, gnn, link_pred, device=device):
-        ts = context.timestamp
-        for window in windows:
-            start_ns, end_ns, _ = window
-            if start_ns <= ts <= end_ns:
-                buckets[window].append(context)
-    return buckets
 
 
 def aggregate_node_scores(contexts: Iterable[EventContext]) -> Dict[int, float]:
