@@ -18,8 +18,9 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 from torch.optim import Adam
+from tqdm.auto import tqdm
 
-from .utils import EventContext, TemporalLinkWrapper
+from .utils import EventContext, TemporalLinkWrapper, ensure_gpu_space, log_cuda_memory
 try:  # pragma: no cover
     from ..config import include_edge_type as _DEFAULT_INCLUDE_EDGE_TYPE, node_embedding_dim as _DEFAULT_NODE_EMBEDDING_DIM
 except ImportError:  # pragma: no cover
@@ -158,9 +159,27 @@ class GraphMaskExplainer:
             ordered_contexts = ordered_contexts[:top_k_events]
 
         results: List[GraphMaskResult] = []
-        for _, context in ordered_contexts:
+        deferred: List[Tuple[int, EventContext]] = []
+
+        for item in tqdm(ordered_contexts, desc="GraphMask events", leave=False):
+            if not ensure_gpu_space():
+                deferred.append(item)
+                continue
+            _, context = item
+            log_cuda_memory(f"GraphMask event {context.event_index}")
             wrapper = wrapper_factory(context)
             results.append(self.explain_event(context, wrapper, device))
+
+        if deferred:
+            print(f"[warn] Deferring {len(deferred)} GraphMask event(s) due to low GPU memory.")
+            torch.cuda.empty_cache()
+            for item in deferred:
+                if not ensure_gpu_space():
+                    print("[warn] GPU memory still low; processing deferred GraphMask event anyway.")
+                _, context = item
+                log_cuda_memory(f"GraphMask deferred event {context.event_index}")
+                wrapper = wrapper_factory(context)
+                results.append(self.explain_event(context, wrapper, device))
         return results
 
     @staticmethod

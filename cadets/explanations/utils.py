@@ -26,6 +26,28 @@ except ImportError:  # pragma: no cover - fallback when run as script
 _CONTEXT_STORAGE_MODE = os.environ.get("KAIROS_CONTEXT_DEVICE", "auto").lower()
 
 _LOGGER = logging.getLogger(__name__)
+_GPU_FALLBACK_WARNED = False
+_GPU_FALLBACK_ACTIVE = False
+_GPU_BUFFER_BYTES = int(os.environ.get("KAIROS_CONTEXT_GPU_BUFFER", 512 * 1024**2))
+
+
+def _move_to_cuda(tensor: Tensor) -> Tensor:
+    global _GPU_FALLBACK_WARNED, _GPU_FALLBACK_ACTIVE
+    if _GPU_FALLBACK_ACTIVE or not torch.cuda.is_available():
+        return tensor.to("cpu")
+    try:
+        return tensor.to("cuda", non_blocking=True)
+    except RuntimeError as exc:  # pragma: no cover - only triggers on OOM
+        message = str(exc).lower()
+        if "out of memory" in message:
+            if not _GPU_FALLBACK_WARNED:
+                print("[warn] GPU memory exhausted while storing contexts; falling back to CPU.")
+                _LOGGER.warning("GPU out of memory when storing context tensor; falling back to CPU storage.")
+                _GPU_FALLBACK_WARNED = True
+            _GPU_FALLBACK_ACTIVE = True
+            torch.cuda.empty_cache()
+            return tensor.to("cpu")
+        raise
 
 
 def _store_tensor(tensor: Optional[Tensor]) -> Optional[Tensor]:
@@ -33,8 +55,10 @@ def _store_tensor(tensor: Optional[Tensor]) -> Optional[Tensor]:
         return tensor
     result = tensor.detach()
     target_mode = _CONTEXT_STORAGE_MODE
-    if target_mode == "gpu" and torch.cuda.is_available():
-        return result.to(torch.device("cuda"))
+    if target_mode == "auto":
+        target_mode = "gpu" if torch.cuda.is_available() else "cpu"
+    if target_mode == "gpu":
+        return _move_to_cuda(result)
     if target_mode == "cpu_pin":
         result = result.to("cpu")
         try:
@@ -44,6 +68,60 @@ def _store_tensor(tensor: Optional[Tensor]) -> Optional[Tensor]:
         return result
     # default: keep on CPU for streaming to the accelerator when needed.
     return result.to("cpu")
+
+
+def ensure_gpu_space(buffer_bytes: Optional[int] = None) -> bool:
+    """
+    Ensure at least `buffer_bytes` free on the active CUDA device.
+    Returns True when enough memory is available (after optionally clearing cache),
+    False otherwise. When CUDA is unavailable the function always returns True.
+    """
+    if not torch.cuda.is_available():
+        return True
+
+    device = torch.device("cuda")
+    threshold = buffer_bytes if buffer_bytes is not None else _GPU_BUFFER_BYTES
+    if threshold <= 0:
+        return True
+
+    total = torch.cuda.get_device_properties(device).total_memory
+    reserved = torch.cuda.memory_reserved(device)
+    free = total - reserved
+    if free >= threshold:
+        return True
+
+    torch.cuda.empty_cache()
+    reserved = torch.cuda.memory_reserved(device)
+    free = total - reserved
+    if free >= threshold:
+        return True
+
+    print(
+        f"[warn] Available CUDA memory {free/1024**2:.1f} MiB below buffer "
+        f"({threshold/1024**2:.1f} MiB). Deferring GPU work."
+    )
+    _LOGGER.warning(
+        "CUDA free memory %.1f MiB below buffer %.1f MiB. Deferring GPU work.",
+        free / 1024**2,
+        threshold / 1024**2,
+    )
+    return False
+
+
+def log_cuda_memory(stage: str) -> None:
+    """Print current CUDA memory stats for visibility."""
+    if not torch.cuda.is_available():
+        return
+    device = torch.device("cuda")
+    allocated = torch.cuda.memory_allocated(device)
+    reserved = torch.cuda.memory_reserved(device)
+    total = torch.cuda.get_device_properties(device).total_memory
+    free = total - reserved
+    print(
+        f"[info] CUDA memory before {stage}: "
+        f"allocated={allocated/1024**2:.1f} MiB, reserved={reserved/1024**2:.1f} MiB, "
+        f"free={free/1024**2:.1f} MiB."
+    )
 
 @dataclass
 class EventContext:
