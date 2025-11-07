@@ -1,5 +1,7 @@
+import logging
 import os
 import time
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, Iterable, Optional, List, Tuple
 
@@ -20,8 +22,10 @@ except ImportError:  # pragma: no cover - fallback when run as script
     import model
 
 # Controls where event context tensors are stored. Use "gpu", "cpu", or "cpu_pin";
-# default "auto" keeps tensors on GPU when available.
+# default "auto" keeps contexts on CPU and streams them to GPU for explanation.
 _CONTEXT_STORAGE_MODE = os.environ.get("KAIROS_CONTEXT_DEVICE", "auto").lower()
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _store_tensor(tensor: Optional[Tensor]) -> Optional[Tensor]:
@@ -29,19 +33,17 @@ def _store_tensor(tensor: Optional[Tensor]) -> Optional[Tensor]:
         return tensor
     result = tensor.detach()
     target_mode = _CONTEXT_STORAGE_MODE
-    if target_mode == "auto":
-        target_mode = "gpu" if torch.cuda.is_available() else "cpu"
-    if target_mode == "cpu" or target_mode == "cpu_pin":
+    if target_mode == "gpu" and torch.cuda.is_available():
+        return result.to(torch.device("cuda"))
+    if target_mode == "cpu_pin":
         result = result.to("cpu")
-        if target_mode == "cpu_pin":
-            try:
-                result = result.pin_memory()
-            except RuntimeError:
-                pass
-    else:
-        # Keep tensor on its current device (GPU/MPS/CPU)
-        pass
-    return result
+        try:
+            result = result.pin_memory()
+        except RuntimeError:
+            pass
+        return result
+    # default: keep on CPU for streaming to the accelerator when needed.
+    return result.to("cpu")
 
 @dataclass
 class EventContext:
@@ -113,7 +115,6 @@ class TemporalLinkWrapper(torch.nn.Module):
         self.register_buffer("last_update", context.last_update.detach().to(device))
         self.register_buffer("edge_times", context.edge_times.detach().to(device))
         self.register_buffer("edge_messages", context.edge_messages.detach().to(device))
-        self.register_buffer("baseline_embeddings", context.base_embeddings.detach().to(device))
         self.register_buffer("node_ids", context.node_ids.detach().to(device))
 
         self.gnn.eval()
@@ -126,12 +127,18 @@ class TemporalLinkWrapper(torch.nn.Module):
         edge_attr: Optional[Tensor] = None,
         edge_t: Optional[Tensor] = None,
     ) -> Tensor:
+        device = self.last_update.device
+        x = x.to(device)
+        edge_index = edge_index.to(device)
+        msg = (edge_attr if edge_attr is not None else self.edge_messages).to(device)
+        times = (edge_t if edge_t is not None else self.edge_times).to(device)
         if edge_index.numel() == 0:
-            z = self.baseline_embeddings
-        else:
-            msg = edge_attr if edge_attr is not None else self.edge_messages
-            times = edge_t if edge_t is not None else self.edge_times
-            z = self.gnn(x, self.last_update, edge_index, times, msg)
+            edge_index = edge_index.new_empty((2, 0))
+        if msg.numel() == 0:
+            msg = msg.new_empty((0, self.edge_messages.size(-1)))
+        if times.numel() == 0:
+            times = times.new_empty((0,))
+        z = self.gnn(x, self.last_update, edge_index, times, msg)
         return self.link_pred(z[[self.src_idx]], z[[self.dst_idx]])
 
 
@@ -422,3 +429,43 @@ def load_attack_intervals() -> List[Tuple[int, int, str]]:
         intervals.append((start_ns, end_ns, path))
     intervals.sort(key=lambda x: x[0])
     return intervals
+
+
+def group_contexts_by_windows(
+    data: TemporalData,
+    memory: torch.nn.Module,
+    gnn: torch.nn.Module,
+    link_pred: torch.nn.Module,
+    windows: List[Tuple[int, int, str]],
+    *,
+    device: Optional[torch.device] = None,
+) -> Dict[Tuple[int, int, str], List[EventContext]]:
+    """
+    Stream contexts once and group them by attack window.
+    """
+    device = device or model.device
+
+    if not windows:
+        _LOGGER.warning("No attack windows found; skipping context streaming.")
+        return {}
+
+    buckets: Dict[Tuple[int, int, str], List[EventContext]] = {window: [] for window in windows}
+
+    for context in stream_event_contexts(data, memory, gnn, link_pred, device=device):
+        ts = context.timestamp
+        for window in windows:
+            start_ns, end_ns, _ = window
+            if start_ns <= ts <= end_ns:
+                buckets[window].append(context)
+    return buckets
+
+
+def aggregate_node_scores(contexts: Iterable[EventContext]) -> Dict[int, float]:
+    """
+    Sum losses for source/destination nodes across contexts.
+    """
+    scores: Dict[int, float] = defaultdict(float)
+    for ctx in contexts:
+        scores[ctx.src_node] += ctx.loss
+        scores[ctx.dst_node] += ctx.loss
+    return scores

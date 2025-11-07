@@ -12,7 +12,13 @@ def _run_model(
     edge_attr: torch.Tensor,
     edge_times: torch.Tensor,
 ) -> torch.Tensor:
-    logits = wrapper(context.memory_inputs, edge_index, edge_attr=edge_attr, edge_t=edge_times)
+    device = wrapper.last_update.device
+    logits = wrapper(
+        context.memory_inputs.to(device),
+        edge_index,
+        edge_attr=edge_attr,
+        edge_t=edge_times,
+    )
     return torch.softmax(logits, dim=-1)
 
 
@@ -30,28 +36,16 @@ def evaluate_mask(
 
     probs_full = _run_model(wrapper, context, context.edge_index, context.edge_messages, context.edge_times)
 
-    if keep.any():
-        probs_keep = _run_model(
-            wrapper,
-            context,
-            context.edge_index[:, keep],
-            context.edge_messages[keep],
-            context.edge_times[keep],
-        )
-    else:
-        probs_keep = probs_full
+    keep_index = context.edge_index[:, keep]
+    keep_attr = context.edge_messages[keep]
+    keep_times = context.edge_times[keep]
+    probs_keep = _run_model(wrapper, context, keep_index, keep_attr, keep_times)
 
     drop = ~keep
-    if drop.any():
-        probs_drop = _run_model(
-            wrapper,
-            context,
-            context.edge_index[:, drop],
-            context.edge_messages[drop],
-            context.edge_times[drop],
-        )
-    else:
-        probs_drop = probs_full
+    drop_index = context.edge_index[:, drop]
+    drop_attr = context.edge_messages[drop]
+    drop_times = context.edge_times[drop]
+    probs_drop = _run_model(wrapper, context, drop_index, drop_attr, drop_times)
 
     label = max(context.label, 0)
     prob_full = probs_full[0, label].item()
@@ -74,4 +68,5 @@ def evaluate_mask(
         "entropy": mask_entropy,
         "runtime_sec": runtime,
         "kept_edges": kept_edges,
+        "edge_mask": edge_mask.detach().cpu().tolist(),
     }

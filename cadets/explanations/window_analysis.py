@@ -1,38 +1,46 @@
 """
-Simplified explanation pipeline for the Kairos TGN model.
+Explanation pipeline focused on attack windows for the Kairos TGN model.
 
-Run:
-    python -m cadets.explanations.window_analysis
-
-The script will:
-  * Load the trained Kairos model.
-  * Train PGExplainer on a sample of April 6th events.
-  * Use `fetch_attack_list()` to locate the known attack windows.
-  * For each attack window, run PGExplainer on every event and GNNExplainer
-    on the high-loss subset (Kairos-style threshold).
-  * Log window-level summaries to `artifact/explanations.log` and print an
-    aggregated JSON report to stdout.
+Workflow (no CLI arguments):
+  * Load the pretrained model.
+  * Locate attack windows using ``fetch_attack_list``.
+  * For each window:
+      - Aggregate high-loss events to produce a GraphMask-style graph story.
+      - Select nodes whose cumulative loss exceeds the threshold.
+      - Run GNNExplainer and VA-TGExplainer on edges touching those nodes.
+  * Persist concise JSON outputs under ``artifact/explanations``.
 """
+
+from __future__ import annotations
 
 import json
 import logging
 import os
+from collections import defaultdict
 from typing import Dict, List, Tuple
 
 import torch
 from tqdm import tqdm
 
 try:
-    from ..config import ARTIFACT_DIR
+    from ..config import ARTIFACT_DIR, include_edge_type, node_embedding_dim
 except ImportError:  # pragma: no cover
-    from config import ARTIFACT_DIR
+    from config import ARTIFACT_DIR, include_edge_type, node_embedding_dim
 
-from . import gnn_explainer, pg_explainer, utils
+from . import gnn_explainer, graphmask_explainer, utils, va_tg_explainer
+from .utils import TemporalLinkWrapper
 
 DEFAULT_GRAPH_LABEL = "4_6"
-PG_TRAIN_SAMPLE = 1000
-MAX_GNN_EVENTS = 50
+USE_ATTACK_WINDOWS = True  # Set False to process the entire day (edit this flag manually).
+MAX_EVENTS_PER_WINDOW = 50
+GRAPHMASK_TOP_EVENTS = 25
+MAX_NODES_PER_WINDOW = 20
 THRESHOLD_MULTIPLIER = 1.5
+TOP_K_EDGE_EXPLANATIONS = 10
+MIN_EDGE_WEIGHT = 0.1
+MIN_NODE_SCORE = 0.1
+
+OUTPUT_DIR = os.path.join(ARTIFACT_DIR, "explanations")
 
 
 def _setup_logger() -> logging.Logger:
@@ -40,8 +48,8 @@ def _setup_logger() -> logging.Logger:
     if logger.handlers:
         return logger
     logger.setLevel(logging.INFO)
-    os.makedirs(ARTIFACT_DIR, exist_ok=True)
-    handler = logging.FileHandler(os.path.join(ARTIFACT_DIR, "explanations.log"))
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    handler = logging.FileHandler(os.path.join(OUTPUT_DIR, "temporal_explanations.log"))
     handler.setFormatter(
         logging.Formatter("%(asctime)s - %(levelname)s - %(message)s", "%Y-%m-%d %H:%M:%S")
     )
@@ -57,160 +65,228 @@ def _compute_threshold(losses: List[float]) -> float:
     return mu + THRESHOLD_MULTIPLIER * sigma
 
 
-def _aggregate(metrics: List[Dict[str, float]]) -> Dict[str, float]:
-    if not metrics:
-        return {}
-    keys = metrics[0].keys()
-    summary: Dict[str, float] = {}
-    for key in keys:
-        values = [m[key] for m in metrics if key in m]
-        if values:
-            summary[key] = float(sum(values) / len(values))
-    return summary
+def _select_nodes(contexts: List[utils.EventContext], threshold: float) -> Tuple[List[int], Dict[int, float]]:
+    scores = utils.aggregate_node_scores(contexts)
+    selected = [node for node, score in scores.items() if score >= threshold]
+    if selected:
+        return selected[:MAX_NODES_PER_WINDOW], scores
+
+    fallback = [
+        node for node, score in sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+        if score >= MIN_NODE_SCORE
+    ]
+    return fallback[:MAX_NODES_PER_WINDOW], scores
+
+
+def _serialise_tensor(tensor: torch.Tensor | None) -> List[float]:
+    if tensor is None:
+        return []
+    return tensor.detach().cpu().tolist()
+
+
+def _serialise_edge_map(edge_map: Dict[Tuple[int, int, str], Dict[str, float | int | List[int]]]) -> List[Dict[str, object]]:
+    return [
+        {
+            "src": key[0],
+            "dst": key[1],
+            "relation": key[2],
+            "weight": value.get("weight", 0.0),
+            "count": value.get("count", 0),
+            "timestamps": value.get("timestamps", []),
+        }
+        for key, value in edge_map.items()
+    ]
+
+
+def _top_edge_explanations(
+    mask_metrics: Dict[str, float],
+    context: utils.EventContext,
+) -> List[Dict[str, float]]:
+    weights = mask_metrics.get("edge_mask", [])
+    if not weights:
+        return []
+    ranked = sorted(
+        zip(range(len(weights)), weights),
+        key=lambda kv: kv[1],
+        reverse=True,
+    )
+    top = []
+    for idx, weight in ranked:
+        if len(top) >= TOP_K_EDGE_EXPLANATIONS:
+            break
+        if weight < MIN_EDGE_WEIGHT:
+            continue
+        src = int(context.edge_index[0, idx])
+        dst = int(context.edge_index[1, idx])
+        timestamp = int(context.edge_times[idx].item())
+        msg_slice = context.edge_messages[idx]
+        relation_idx = torch.argmax(msg_slice[node_embedding_dim:-node_embedding_dim]).item()
+        relation = include_edge_type[relation_idx]
+        top.append(
+            {
+                "src": src,
+                "dst": dst,
+                "relation": relation,
+                "timestamp": timestamp,
+                "weight": float(weight),
+            }
+        )
+    return top
+
+
+def _collect_windows(train_data, memory, gnn, link_pred, device):
+    windows: List[Tuple[int, int, str]]
+    if USE_ATTACK_WINDOWS:
+        windows = [
+            interval
+            for interval in utils.load_attack_intervals()
+            if f"graph_{DEFAULT_GRAPH_LABEL}" in interval[2]
+        ]
+    else:
+        start_ns = int(train_data.t.min().item())
+        end_ns = int(train_data.t.max().item())
+        windows = [(start_ns, end_ns, f"graph_{DEFAULT_GRAPH_LABEL}_full_day")]
+    return utils.group_contexts_by_windows(train_data, memory, gnn, link_pred, windows, device=device)
 
 
 def run_pipeline() -> Dict[str, object]:
     logger = _setup_logger()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     memory, gnn, link_pred = utils.load_model(device=device)
-
-    # Train PGExplainer on a sample of events.
     train_data = utils.load_temporal_graph(DEFAULT_GRAPH_LABEL)
-    train_contexts = utils.collect_contexts(
-        train_data,
-        memory,
-        gnn,
-        link_pred,
-        limit=PG_TRAIN_SAMPLE if PG_TRAIN_SAMPLE > 0 else None,
-        device=device,
-    )
-    if not train_contexts:
-        raise RuntimeError(
-            "PGExplainer training aborted: no events available in "
-            f"graph_{DEFAULT_GRAPH_LABEL}.TemporalData.simple. "
-            "Ensure embeddings exist before running window analysis."
-        )
-    pg_indices = sorted(train_contexts.keys())
-    pg_algo, _ = pg_explainer.train_pg_explainer(
-        memory,
-        gnn,
-        link_pred,
-        train_data,
-        pg_indices,
-        contexts=train_contexts,
-        device=device,
-    )
 
-    # Filter attack windows relevant to this dataset.
-    attack_windows = [
-        interval
-        for interval in utils.load_attack_intervals()
-        if f"graph_{DEFAULT_GRAPH_LABEL}" in interval[2]
-    ]
+    window_contexts = _collect_windows(train_data, memory, gnn, link_pred, device)
 
-    def _timestamp_in_any_window(timestamp: int) -> bool:
-        for start_ns, end_ns, _ in attack_windows:
-            if start_ns <= timestamp <= end_ns:
-                return True
-        return False
+    masker = graphmask_explainer.GraphMaskExplainer()
+    temporal_explainer = va_tg_explainer.VATGExplainer()
 
-    attack_contexts = utils.collect_contexts(
-        train_data,
-        memory,
-        gnn,
-        link_pred,
-        predicate=lambda ctx: _timestamp_in_any_window(ctx.timestamp),
-        device=device,
-    )
+    outputs: List[Dict[str, object]] = []
 
-    window_contexts_map: Dict[Tuple[int, int, str], Dict[int, utils.EventContext]] = {
-        window: {} for window in attack_windows
-    }
-    for idx, context in tqdm(list(attack_contexts.items()), desc="Indexing attack contexts", leave=False):
-        for window in attack_windows:
-            start_ns, end_ns, _ = window
-            if start_ns <= context.timestamp <= end_ns:
-                window_contexts_map[window][idx] = context
-                context.is_attack = True
-
-    window_summaries: List[Dict[str, object]] = []
-
-    for start_ns, end_ns, path in tqdm(attack_windows, desc="Analyzing attack windows", leave=False):
-        contexts = window_contexts_map.get((start_ns, end_ns, path), {})
+    for window, contexts in tqdm(window_contexts.items(), desc="Windows", leave=False):
         if not contexts:
             continue
 
-        losses = [ctx.loss for ctx in contexts.values()]
+        contexts = sorted(contexts, key=lambda ctx: ctx.loss, reverse=True)
+        losses = [ctx.loss for ctx in contexts]
         threshold = _compute_threshold(losses)
-        loss_tensor = torch.tensor(losses)
-        loss_mean = float(loss_tensor.mean().item())
-        loss_std = float(loss_tensor.std(unbiased=False).item())
-        flagged = sum(1 for loss in losses if loss > threshold)
 
-        sorted_events: List[Tuple[int, utils.EventContext]] = sorted(
-            contexts.items(), key=lambda kv: kv[1].loss, reverse=True
+        high_loss_events = [(idx, ctx) for idx, ctx in enumerate(contexts) if ctx.loss >= threshold]
+        high_loss_events = high_loss_events[:MAX_EVENTS_PER_WINDOW]
+
+        if not high_loss_events:
+            high_loss_events = list(enumerate(contexts[:MAX_EVENTS_PER_WINDOW]))
+
+        def _wrapper_factory(ctx: utils.EventContext) -> TemporalLinkWrapper:
+            return TemporalLinkWrapper(gnn, link_pred, ctx, device)
+
+        mask_results = masker.explain_window(
+            high_loss_events,
+            wrapper_factory=_wrapper_factory,
+            device=device,
+            top_k_events=GRAPHMASK_TOP_EVENTS,
         )
+        aggregated_map = graphmask_explainer.GraphMaskExplainer.aggregate(mask_results)
 
-        pg_metrics: List[Dict[str, float]] = []
-        gnn_metrics: List[Dict[str, float]] = []
+        selected_nodes, node_scores = _select_nodes(contexts, threshold)
 
-        window_name = os.path.basename(path)
+        node_outputs = []
+        for node in selected_nodes:
+            related_contexts = [ctx for ctx in contexts if ctx.src_node == node or ctx.dst_node == node]
+            related_contexts = related_contexts[:MAX_EVENTS_PER_WINDOW]
 
-        for _, context in tqdm(sorted_events, desc=f"PG explainer {window_name}", leave=False):
-            pg_metrics.append(
-                pg_explainer.explain_event(context, gnn, link_pred, pg_algo, device)
+            gnn_results = []
+            va_event_results: List[va_tg_explainer.VATGResult] = []
+            va_serialised = []
+            for ctx in related_contexts:
+                gnn_metrics = gnn_explainer.explain_event(ctx, gnn, link_pred, device)
+                gnn_results.append(
+                    {
+                        "event_index": ctx.event_index,
+                        "src_node": ctx.src_node,
+                        "dst_node": ctx.dst_node,
+                        "prob_full": gnn_metrics["prob_full"],
+                        "prob_keep": gnn_metrics["prob_keep"],
+                        "prob_drop": gnn_metrics["prob_drop"],
+                        "comprehensiveness": gnn_metrics["comprehensiveness"],
+                        "sufficiency": gnn_metrics["sufficiency"],
+                        "sparsity": gnn_metrics["sparsity"],
+                        "entropy": gnn_metrics["entropy"],
+                        "runtime_sec": gnn_metrics["runtime_sec"],
+                        "kept_edges": gnn_metrics["kept_edges"],
+                        "top_edges": _top_edge_explanations(gnn_metrics, ctx),
+                    }
+                )
+
+                wrapper = TemporalLinkWrapper(gnn, link_pred, ctx, device)
+                va_result = temporal_explainer.explain_event(ctx, wrapper, device)
+                va_event_results.append(va_result)
+                va_serialised.append(
+                    {
+                        "event_index": va_result.event_index,
+                        "edge_importance": _serialise_tensor(va_result.edge_importance),
+                        "edges": [
+                            {"src": edge[0], "dst": edge[1], "relation": edge[2], "timestamp": edge[3]}
+                            for edge in va_result.edges
+                        ],
+                        "kl_history": va_result.kl_history,
+                        "loss_history": va_result.loss_history,
+                    }
+                )
+
+            va_aggregate = va_tg_explainer.VATGExplainer.aggregate(va_event_results)
+
+            node_outputs.append(
+                {
+                    "node_id": node,
+                    "score": node_scores.get(node, 0.0),
+                    "gnn": gnn_results,
+                    "va_tg": {
+                        "events": va_serialised,
+                        "aggregate": _serialise_edge_map(va_aggregate),
+                    },
+                }
             )
 
-        high_loss_events = [
-            (idx, ctx) for idx, ctx in sorted_events if ctx.loss > threshold
-        ]
-        if MAX_GNN_EVENTS > 0:
-            high_loss_events = high_loss_events[:MAX_GNN_EVENTS]
-
-        for _, context in tqdm(high_loss_events, desc=f"GNN explainer {window_name}", leave=False):
-            gnn_metrics.append(
-                gnn_explainer.explain_event(context, gnn, link_pred, device)
-            )
-
-        summary = {
-            "window": os.path.basename(path),
-            "start_ns": start_ns,
-            "end_ns": end_ns,
-            "num_events": len(sorted_events),
-            "loss_mean": loss_mean,
-            "loss_std": loss_std,
+        window_output = {
+            "window_path": window[2],
+            "start_ns": window[0],
+            "end_ns": window[1],
             "threshold": threshold,
-            "kairos_flagged": flagged,
-            "kairos_flag_fraction": flagged / max(len(sorted_events), 1),
-            "pg_summary": _aggregate(pg_metrics),
-            "gnn_summary": _aggregate(gnn_metrics),
+            "num_events": len(contexts),
+            "graphmask": {
+                "per_event": [
+                    {
+                        "event_index": res.event_index,
+                        "edge_importance": _serialise_tensor(res.edge_importance),
+                        "edges": [
+                            {"src": edge[0], "dst": edge[1], "relation": edge[2], "timestamp": edge[3]}
+                            for edge in res.edges
+                        ],
+                        "loss_history": res.loss_history,
+                    }
+                    for res in mask_results
+                ],
+                "aggregate": _serialise_edge_map(aggregated_map),
+            },
+            "nodes": node_outputs,
         }
-        window_summaries.append(summary)
 
-        logger.info("Window %s", summary["window"])
-        logger.info(
-            "  events=%d loss_mean=%.4f loss_std=%.4f threshold=%.4f flagged=%d",
-            summary["num_events"],
-            summary["loss_mean"],
-            summary["loss_std"],
-            summary["threshold"],
-            summary["kairos_flagged"],
+        outputs.append(window_output)
+        logger.info("Window %s | events=%d | threshold=%.4f", window[2], len(contexts), threshold)
+
+        out_path = os.path.join(
+            OUTPUT_DIR,
+            f"{os.path.basename(window[2]).replace('.txt', '')}_explanations.json",
         )
-        logger.info("  PG metrics: %s", summary["pg_summary"])
-        logger.info("  GNN metrics: %s", summary["gnn_summary"])
+        with open(out_path, "w", encoding="utf-8") as fh:
+            json.dump(window_output, fh, indent=2)
 
-    overall_pg = _aggregate([w["pg_summary"] for w in window_summaries if w["pg_summary"]])
-    overall_gnn = _aggregate([w["gnn_summary"] for w in window_summaries if w["gnn_summary"]])
+    summary = {"graph_label": DEFAULT_GRAPH_LABEL, "windows": outputs}
+    summary_path = os.path.join(OUTPUT_DIR, f"graph_{DEFAULT_GRAPH_LABEL}_summary.json")
+    with open(summary_path, "w", encoding="utf-8") as fh:
+        json.dump(summary, fh, indent=2)
 
-    logger.info("Overall PG summary: %s", overall_pg)
-    logger.info("Overall GNN summary: %s", overall_gnn)
-
-    return {
-        "graph_label": DEFAULT_GRAPH_LABEL,
-        "windows": window_summaries,
-        "overall_pg": overall_pg,
-        "overall_gnn": overall_gnn,
-    }
+    return summary
 
 
 def main() -> None:
