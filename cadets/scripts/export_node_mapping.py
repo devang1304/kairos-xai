@@ -6,7 +6,7 @@ from pathlib import Path
 
 import psycopg2
 
-from ..config import DATABASE, HOST, NODE_MAPPING_JSON, PASSWORD, PORT, USER
+from config import DATABASE, HOST, NODE_MAPPING_JSON, PASSWORD, PORT, USER
 
 OUTPUT_PATH = Path(NODE_MAPPING_JSON)
 
