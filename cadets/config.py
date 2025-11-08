@@ -11,7 +11,7 @@ RAW_DIR = "/mnt/data/repos/xai-kairos/data/"
 ARTIFACT_DIR = "./artifact/"
 
 # JSON mapping file for node id -> human readable label
-NODE_MAPPING_JSON = ARTIFACT_DIR + "node_mapping.json"
+NODE_MAPPING_JSON = ARTIFACT_DIR + "explanations/node_mapping.json"
 
 # The directory to save the vectorized graphs
 GRAPHS_DIR = ARTIFACT_DIR + "graph_embeddings/"

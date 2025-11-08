@@ -8,8 +8,6 @@ Each module exposes a ``main()`` so scripts can be invoked via
 __all__ = [
     "db_query",
     "db_utils",
-    "export_node_mapping",
-    "generate_report",
     "read_anomalous_queue",
     "read_embeddings",
     "read_explanations",

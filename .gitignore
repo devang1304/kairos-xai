@@ -112,7 +112,7 @@ __pypackages__/
 # =========================
 # Virtual Environments
 # =========================
-.env/
+**.env
 .venv/
 env/
 venv/

@@ -31,7 +31,7 @@ except ImportError:  # pragma: no cover
     from config import ARTIFACT_DIR, NODE_MAPPING_JSON, include_edge_type, node_embedding_dim
     from kairos_utils import datetime_to_ns_time_US, ns_time_to_datetime_US
 
-from . import gnn_explainer, graphmask_explainer, report_builder, utils, va_tg_explainer
+from . import gnn_explainer, graphmask_explainer, utils, va_tg_explainer
 from .utils import TemporalLinkWrapper, ensure_gpu_space, log_cuda_memory
 
 DEFAULT_GRAPH_LABEL = "4_6"
@@ -76,17 +76,31 @@ def _compute_threshold(losses: List[float]) -> float:
     return mu + THRESHOLD_MULTIPLIER * sigma
 
 
-def _select_nodes(contexts: List[utils.EventContext], threshold: float) -> Tuple[List[int], Dict[int, float]]:
-    scores = utils.aggregate_node_scores(contexts)
+def _select_nodes(
+    contexts: List[utils.EventContext],
+    threshold: float,
+) -> Tuple[List[int], Dict[int, float], Dict[int, int], Dict[int, float]]:
+    scores: Dict[int, float] = defaultdict(float)
+    counts: Dict[int, int] = defaultdict(int)
+    peak_losses: Dict[int, float] = defaultdict(float)
+    for ctx in contexts:
+        loss_val = float(ctx.loss)
+        scores[ctx.src_node] += loss_val
+        scores[ctx.dst_node] += loss_val
+        counts[ctx.src_node] += 1
+        counts[ctx.dst_node] += 1
+        peak_losses[ctx.src_node] = max(peak_losses[ctx.src_node], loss_val)
+        peak_losses[ctx.dst_node] = max(peak_losses[ctx.dst_node], loss_val)
+
     selected = [node for node, score in scores.items() if score >= threshold]
     if selected:
-        return selected[:MAX_NODES_PER_WINDOW], scores
+        return selected[:MAX_NODES_PER_WINDOW], scores, counts, peak_losses
 
     fallback = [
         node for node, score in sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
         if score >= MIN_NODE_SCORE
     ]
-    return fallback[:MAX_NODES_PER_WINDOW], scores
+    return fallback[:MAX_NODES_PER_WINDOW], scores, counts, peak_losses
 
 
 def _serialise_tensor(tensor: torch.Tensor | None) -> List[float]:
@@ -164,7 +178,7 @@ def _collect_windows(train_data, memory, gnn, link_pred, device):
         for start_str, end_str in HARD_CODED_ATTACK_WINDOWS:
             start_ns = datetime_to_ns_time_US(start_str)
             end_ns = datetime_to_ns_time_US(end_str)
-            identifier = f"hardcoded/{start_str.replace(' ', '_')}~{end_str.replace(' ', '_')}.txt"
+            identifier = f"{start_str.replace(' ', '_')}~{end_str.replace(' ', '_')}.txt"
             windows.append((start_ns, end_ns, identifier))
     else:
         start_ns = int(train_data.t.min().item())
@@ -267,11 +281,13 @@ def run_pipeline() -> Dict[str, object]:
         losses = [ctx.loss for ctx in contexts]
         threshold = _compute_threshold(losses)
 
-        high_loss_events = [(idx, ctx) for idx, ctx in enumerate(contexts) if ctx.loss >= threshold]
-        high_loss_events = high_loss_events[:MAX_EVENTS_PER_WINDOW]
+        high_loss_candidates = [(idx, ctx) for idx, ctx in enumerate(contexts) if ctx.loss >= threshold]
+        candidate_count = len(high_loss_candidates)
+        high_loss_events = high_loss_candidates[:MAX_EVENTS_PER_WINDOW]
 
         if not high_loss_events:
             high_loss_events = list(enumerate(contexts[:MAX_EVENTS_PER_WINDOW]))
+            candidate_count = len(contexts)
 
         def _wrapper_factory(ctx: utils.EventContext, target_device: torch.device) -> TemporalLinkWrapper:
             if target_device.type == "cpu":
@@ -289,13 +305,14 @@ def run_pipeline() -> Dict[str, object]:
         print(f"[info] GraphMask analysed {len(mask_results)} event(s) for window {window[2]}.")
         aggregated_map = graphmask_explainer.GraphMaskExplainer.aggregate(mask_results)
 
-        selected_nodes, node_scores = _select_nodes(contexts, threshold)
+        selected_nodes, node_scores, node_counts, node_peak_losses = _select_nodes(contexts, threshold)
         print(f"[info] Selected {len(selected_nodes)} node(s) for detailed explanations.")
 
         node_outputs = []
         for node in tqdm(selected_nodes, desc="Nodes", leave=False):
-            related_contexts = [ctx for ctx in contexts if ctx.src_node == node or ctx.dst_node == node]
-            related_contexts = related_contexts[:MAX_EVENTS_PER_WINDOW]
+            related_contexts_all = [ctx for ctx in contexts if ctx.src_node == node or ctx.dst_node == node]
+            related_contexts = related_contexts_all[:MAX_EVENTS_PER_WINDOW]
+            max_event_loss = node_peak_losses.get(node, 0.0)
 
             gnn_results = []
             va_event_results: List[va_tg_explainer.VATGResult] = []
@@ -364,10 +381,14 @@ def run_pipeline() -> Dict[str, object]:
 
             va_aggregate = va_tg_explainer.VATGExplainer.aggregate(va_event_results)
 
+            avg_score = node_scores.get(node, 0.0) / max(node_counts.get(node, 0), 1)
             node_outputs.append(
                 {
                     "node_id": node,
                     "score": node_scores.get(node, 0.0),
+                    "avg_score": avg_score,
+                    "event_count": node_counts.get(node, 0),
+                    "max_event_loss": max_event_loss,
                     "gnn": gnn_results,
                     "va_tg": {
                         "events": va_serialised,
@@ -382,6 +403,11 @@ def run_pipeline() -> Dict[str, object]:
             "end_ns": window[1],
             "threshold": threshold,
             "num_events": len(contexts),
+            "metrics": {
+                "high_loss_candidates": candidate_count,
+                "high_loss_used": len(high_loss_events),
+                "graphmask_events": len(mask_results),
+            },
             "graphmask": {
                 "per_event": [
                     {
@@ -409,19 +435,8 @@ def run_pipeline() -> Dict[str, object]:
         out_path = os.path.join(OUTPUT_DIR, f"{safe_base}_explanations.json")
         with open(out_path, "w", encoding="utf-8") as fh:
             json.dump(window_output, fh, indent=2)
-
-        try:
-            mapping_path = Path(NODE_MAPPING_PATH) if NODE_MAPPING_PATH else None
-            md_path, html_path, _ = report_builder.build_reports(
-                window_output,
-                Path(OUTPUT_DIR),
-                node_mapping_path=mapping_path,
-                run_gpt=True,
-            )
-            logger.info("Analyst reports generated: %s, %s", md_path.name, html_path.name)
-        except Exception as report_err:
-            logger.warning("Report generation failed for %s: %s", window[2], report_err)
         print(f"[success] Wrote window explanations to {out_path}")
+        print("[hint] Run 'python -m reporting.generate_report' to build analyst summaries.")
 
     summary = {"graph_label": DEFAULT_GRAPH_LABEL, "windows": outputs}
     summary_path = os.path.join(OUTPUT_DIR, f"graph_{DEFAULT_GRAPH_LABEL}_summary.json")
