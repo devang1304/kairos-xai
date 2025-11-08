@@ -219,6 +219,17 @@ def plot_node_scores_bar(node_rows: List[Dict[str, object]], threshold: float, k
         y1=len(labels) - 0.5,
         line=dict(color="#7f7f7f", width=2, dash="dash"),
     )
+    # Annotation for threshold semantics
+    if labels:
+        fig.add_annotation(
+            x=threshold,
+            y=1.02,
+            xref="x",
+            yref="paper",
+            text="event‑loss threshold",
+            showarrow=False,
+            font=dict(color="#7f7f7f", size=12),
+        )
     fig.update_layout(height=420, margin=dict(l=10, r=10, t=10, b=10))
     fig.update_yaxes(automargin=True)
     return fig
@@ -232,6 +243,12 @@ def plot_event_timeline(payload: Dict[str, object]) -> go.Figure:
     counts: Dict[str, int] = {}
     for entry in aggregate:
         for ts in entry.get("timestamps", []) or []:
+            # Accept int, float, and digit-like strings; skip anything else
+            if isinstance(ts, str):
+                if ts.isdigit():
+                    ts = int(ts)
+                else:
+                    continue
             seconds, _ = divmod(int(ts), 1_000_000_000)
             dt = pytz.UTC.localize(datetime.utcfromtimestamp(seconds)).astimezone(EST)
             key = dt.strftime("%Y-%m-%d %H:%M")

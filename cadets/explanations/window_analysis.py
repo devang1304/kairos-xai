@@ -27,9 +27,11 @@ from tqdm import tqdm
 try:
     from ..config import ARTIFACT_DIR, NODE_MAPPING_JSON, include_edge_type, node_embedding_dim
     from ..kairos_utils import datetime_to_ns_time_US, ns_time_to_datetime_US
+    from .export_node_mapping import ensure_node_mapping  # type: ignore
 except ImportError:  # pragma: no cover
     from config import ARTIFACT_DIR, NODE_MAPPING_JSON, include_edge_type, node_embedding_dim
     from kairos_utils import datetime_to_ns_time_US, ns_time_to_datetime_US
+    from explanations.export_node_mapping import ensure_node_mapping  # type: ignore
 
 from . import gnn_explainer, graphmask_explainer, utils, va_tg_explainer
 from .utils import TemporalLinkWrapper, ensure_gpu_space, log_cuda_memory
@@ -250,6 +252,12 @@ def run_pipeline() -> Dict[str, object]:
         f"[info] Context tensors will be cached on {effective_mode.upper()} "
         "(override via KAIROS_CONTEXT_DEVICE)."
     )
+    # Ensure node mapping exists early (best-effort; pipeline should not crash if unavailable)
+    try:
+        ensure_node_mapping(Path(NODE_MAPPING_PATH))
+    except Exception as _e:
+        print(f"[warn] Node mapping creation failed or skipped: {_e}")
+
     print(f"[info] Loading Kairos model and graph for label '{DEFAULT_GRAPH_LABEL}'...")
     memory, gnn, link_pred = utils.load_model(device=device)
     train_data = utils.load_temporal_graph(DEFAULT_GRAPH_LABEL)

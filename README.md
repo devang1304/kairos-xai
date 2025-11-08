@@ -1,102 +1,140 @@
+# Kairos XAI (CADETS)
 
-# Kairos: XAI in Cybersecurity
-
-Kairos is an Explainable AI (XAI) framework designed for cybersecurity applications. This README outlines the steps for setting up and running the Kairos workflow using the CADETS E3 dataset and provides details on utilizing the pre-trained models for quick evaluation.
+Minimal instructions to set up the environment, run the Kairos pipeline, generate explanations, and view analyst‑friendly reports and charts.
 
 ---
 
-## Steps in OG Kairos - Demo (DARPA CADETS E3)
+## 1) Environment Setup
 
-This demo reproduces the experimental results reported in our paper using the CADETS E3 dataset to demonstrate Kairos' end-to-end workflow.
+Requirements
+- Python 3.10+
+- numpy < 2.0 (pinned in requirements.txt)
+- PostgreSQL for node mapping export (optional; dashboard works without mapping)
 
-### 1. Environment Setup
-1. Follow the instructions in the [environment settings](https://github.com/ProvenanceAnalytics/kairos/blob/main/DARPA/settings/environment-settings.md) to configure the required environment for Kairos.
+Create environment (recommended):
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
 
-### 2. Database Setup
-1. Set up the CADETS E3 database by following the instructions in the [database settings](https://github.com/ProvenanceAnalytics/kairos/blob/main/DARPA/settings/database.md).
+# Install core dependencies (reporting + dashboard + exporter)
+pip install -r requirements.txt
 
-### 3. Configuration
-1. Edit the CADETS E3 configuration file:
-   - Open `cadets/config.py`.
-   - Set the variable `raw_dir` to the absolute path of the folder containing the raw CADETS E3 data.
-   - Update database-related variables (e.g., `username`, `password`, etc.) to match your database configuration.
+# Install PyTorch + PyG (choose ONE of the following)
 
-### 4. Run the Workflow
-1. Navigate to the cadets directory:
-   ```bash
-   cd cadets
-   ```
-2. Execute the Kairos workflow (Recomended to run the pipeline in parts, check makefile):
-   ```bash
-   make pipeline
-   ```
+# Option A: CPU‑only (simple)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+pip install torch-geometric torch-scatter torch-sparse torch-cluster -f https://data.pyg.org/whl/torch-2.2.0+cpu.html
 
-### 5. Generated Artifacts
-1. Once the workflow completes, artifacts will be stored in the `cadets/artifact/` folder.
+# Option B: CUDA 12.1 (example; adjust for your CUDA)
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# pip install torch-geometric torch-scatter torch-sparse torch-cluster -f https://data.pyg.org/whl/torch-2.2.0+cu121.html
 
-#### Folder Structure:
-```
-- artifact/
-    - graphs/
-    - graph_4_3/
-    - graph_4_4/
-    - graph_4_5/
-    - graph_4_6/
-    - graph_4_7/
-    - graph_visual/
-    - models/
-    - embedding.log
-    - training.log
-    - reconstruction.log
-    - anomalous_queue.log
-    - evaluation.log
-    - some other artifacts
+# Verify
+python - <<'PY'
+import torch
+print('Torch:', torch.__version__, 'CUDA available:', torch.cuda.is_available())
+PY
 ```
 
-#### Explanation of Artifacts:
-- `graphs/`: Contains all vectorized graphs.
-- `graph_4_*/`: Reconstruction results of graphs.
-- `graph_visual/`: Summary graphs for attack investigation.
-- `embedding.log`: Records statistics during graph vectorization.
-- `training.log`: Records model training losses.
-- `reconstruction.log`: Records reconstruction statistics during testing.
-- `anomalous_queue.log`: Logs anomalous time windows flagged by Kairos.
-- `evaluation.log`: Contains evaluation results for the CADETS E3 dataset.
+Project config
+- Edit `cadets/config.py` and set:
+  - `RAW_DIR` to your CADETS data root (if running the full pipeline)
+  - DB settings if you plan to export the node mapping from PostgreSQL
 
 ---
 
-## Using the Pre-trained Model
-### Quick Evaluation with Pre-trained Models
-1. To skip training and use the pre-trained models:
-   - Download the pre-trained models from [this link](https://drive.google.com/drive/u/0/folders/1YAKoO3G32xlYrCs4BuATt1h_hBvvEB6C), this project is CADETS-E3.
-   - Replace the model under `artifacts/models/`
+## 2) Running the Kairos Pipeline (caution: training is heavy)
 
-2. Run the following commands to evaluate and detect anomalies:
-   ```bash
-   make test
-   make anomaly_detection
-   ```
----
-## How to run on RC (rc.rit.edu)
-1. Follow the path:
-   ```bash
-   cd /shared/rc/malont/CADETS_E3/XAI-CyberSec/NewCadetsE3/
-   ```
-2. Run the test, anomaly_detection & attack_investigation
-   ```bash
-   make test
-   make anomaly_detection
-   make attack_investigation
-   ```
+Recommended approach is to run individual Makefile targets from `cadets/` rather than a single all‑in‑one. Training is heavy; avoid launching it accidentally.
+```bash
+cd cadets
 
----
+# Prepare embeddings / train / test (choose only what you need)
+make embeddings   # vectorize
+make train        # heavy
+make test         # evaluate
 
-## Follow-up Ideas
-### TGNN Explainer
-- Explore TGNN (Temporal Graph Neural Network) explainers for better interpretability of Kairos outputs.
-
-### TGIB Explainer
-- Use Temporal Graph Information Bottleneck (TGIB) techniques to explain and analyze key patterns detected by Kairos.
-
-For additional details, please refer to the official [Kairos GitHub Repository](https://github.com/ProvenanceAnalytics/kairos).
+# Anomaly workflow (no training)
+make anomalous_queue
+make evaluation
+make attack_investigation
 ```
+
+Note: avoid accidentally running `make pipeline` on large datasets unless you intend to train. Use the individual targets above for reproducibility and quicker iteration.
+
+Artifacts land under `cadets/artifact/`.
+
+---
+
+## 3) Explanations Pipeline
+
+Generates window‑based explanation JSON with GraphMask + VA‑TG highlights under `artifact/explanations/`:
+```bash
+cd cadets
+python -m explanations.window_analysis
+```
+
+Optional: ensure node mapping (labels) exists. The pipeline will try to create it automatically if it’s missing, using DB settings from `config.py`. You can also run it manually:
+```bash
+python -m explanations.export_node_mapping
+```
+
+Outputs include (example):
+- `artifact/explanations/2018-04-06_11_00_00~2018-04-06_12_15_00_explanations.json`
+- `artifact/explanations/graph_4_6_summary.json`
+- `artifact/explanations/temporal_explanations.log`
+
+---
+
+## 4) Reporting + Dashboard
+
+Generate a Markdown report with optional GPT narrative (reused between runs):
+```bash
+cd cadets
+export KAIROS_EXPLANATION_JSON="artifact/explanations/2018-04-06_11_00_00~2018-04-06_12_15_00_explanations.json"
+export KAIROS_NODE_MAPPING_JSON="artifact/explanations/node_mapping.json"   # optional
+# export OPENAI_API_KEY=sk-...                                             # optional GPT
+
+python -m reporting.generate_report
+```
+
+Launch the dashboard (top edges, top nodes with threshold line, and timeline + colocated GPT sections):
+```bash
+streamlit run reporting/streamlit_dashboard.py
+```
+
+What you’ll see
+- Bar chart of top GraphMask edges (relation‑colored)
+- Bar chart of top nodes by average loss with a dashed event‑loss threshold line
+- Minute‑binned event timeline
+- GPT narrative sections (What happened? Who’s involved? Why flagged?) aligned next to the relevant charts
+
+---
+
+## 5) Logging & Progress
+
+The codebase favors minimal prints and visible progress where useful:
+- Explanations write to `artifact/explanations/temporal_explanations.log`.
+- Console output uses a few concise prints and `tqdm` progress bars for streaming/explainer loops.
+- GPU memory checks are printed only when relevant (OOM fallback, low‑memory warnings).
+
+Tip: for long runs, tail the log:
+```bash
+tail -f cadets/artifact/explanations/temporal_explanations.log
+```
+
+---
+
+## 6) Environment Variables (optional)
+
+- `KAIROS_EXPLANATION_JSON` – path to a single explanation JSON for report/dashboard
+- `KAIROS_NODE_MAPPING_JSON` – mapping JSON (labels), if available
+- `OPENAI_API_KEY` – enables GPT narrative in report (dashboard reuses saved summaries)
+
+---
+
+## 7) Notes
+
+- Threshold semantics: the event‑loss threshold is derived from per‑event losses and is used to check whether any node participates in an event above the cut‑off (peak loss). The dashboard’s “Top nodes” chart shows average loss per node and draws a dashed vertical line to indicate the event‑loss threshold context.
+- The dashboard is pandas‑free for reliability; visuals use Plotly with plain Python lists/dicts.

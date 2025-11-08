@@ -1,0 +1,19 @@
+# Full project requirements (core)
+#
+# Notes on Torch/PyG:
+# - PyTorch and PyTorch Geometric have platform‑specific wheels. Install them separately
+#   following the README instructions (CPU or CUDA paths). They are not pinned here to
+#   avoid pip resolver failures on unsupported platforms.
+
+numpy<2.0
+pytz>=2023.3
+tqdm>=4.66.0
+networkx>=2.8
+xxhash>=3.4
+scikit-learn>=1.3,<2.0
+psycopg2-binary>=2.9.9
+
+# Reporting / dashboard / GPT
+plotly>=5.22.0
+streamlit>=1.32.0
+openai>=1.30.0
