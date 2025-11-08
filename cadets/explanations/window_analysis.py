@@ -51,6 +51,7 @@ HARD_CODED_ATTACK_WINDOWS = [
 
 OUTPUT_DIR = os.path.join(ARTIFACT_DIR, "explanations")
 NODE_MAPPING_PATH = os.getenv("KAIROS_NODE_MAPPING_JSON", NODE_MAPPING_JSON)
+INVALID_FILENAME_CHARS = '<>:"/\\|?*'
 
 
 def _setup_logger() -> logging.Logger:
@@ -106,6 +107,19 @@ def _serialise_edge_map(edge_map: Dict[Tuple[int, int, str], Dict[str, float | i
         }
         for key, value in edge_map.items()
     ]
+
+
+def _safe_filename(text: str, default: str = "window") -> str:
+    cleaned = []
+    for ch in text:
+        if ch in INVALID_FILENAME_CHARS:
+            cleaned.append("_")
+        elif ch.isspace():
+            cleaned.append("_")
+        else:
+            cleaned.append(ch)
+    candidate = "".join(cleaned).strip("_").strip(".")
+    return candidate or default
 
 
 def _top_edge_explanations(
@@ -390,10 +404,9 @@ def run_pipeline() -> Dict[str, object]:
         logger.info("Window %s | events=%d | threshold=%.4f", window[2], len(contexts), threshold)
         print(f"[success] Completed explanations for window {window[2]} (threshold={threshold:.4f}).")
 
-        out_path = os.path.join(
-            OUTPUT_DIR,
-            f"{os.path.basename(window[2]).replace('.txt', '')}_explanations.json",
-        )
+        raw_base = os.path.splitext(os.path.basename(window[2]))[0]
+        safe_base = _safe_filename(raw_base)
+        out_path = os.path.join(OUTPUT_DIR, f"{safe_base}_explanations.json")
         with open(out_path, "w", encoding="utf-8") as fh:
             json.dump(window_output, fh, indent=2)
 

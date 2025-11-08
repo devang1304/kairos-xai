@@ -240,7 +240,10 @@ def build_reports(
     }
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    base_name = Path(report_json["window_path"]).stem or "window"
+    raw_path = Path(report_json["window_path"])
+    base_name = raw_path.stem.replace(":", "_").replace("/", "_")
+    if not base_name:
+        base_name = "window"
     md_path = output_dir / f"{base_name}_report.md"
     html_path = output_dir / f"{base_name}_report.html"
 
