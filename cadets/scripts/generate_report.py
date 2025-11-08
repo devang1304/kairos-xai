@@ -3,29 +3,19 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Dict
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-if __package__ in (None, ""):
-    os.sys.path.append(str(REPO_ROOT))
-    from cadets.explanations import report_builder  # type: ignore
-else:
-    from cadets.explanations import report_builder
+CAD_DIR = Path(__file__).resolve().parents[1]  # .../cadets
+if str(CAD_DIR) not in sys.path:
+    sys.path.insert(0, str(CAD_DIR))
 
-CONFIG_PATH = REPO_ROOT / "cadets" / "config.py"
-DEFAULT_JSON = (
-    REPO_ROOT
-    / "cadets"
-    / "artifact"
-    / "explanations"
-    / "2018-04-06_11_00_00~2018-04-06_12_15_00_explanations.json"
-)
+import config  # type: ignore
+from explanations import report_builder  # type: ignore
 
-def _load_config() -> Dict[str, str]:
-    namespace: Dict[str, object] = {}
-    exec(CONFIG_PATH.read_text(encoding="utf-8"), namespace)
-    return namespace  # type: ignore[return-value]
+DEFAULT_JSON = CAD_DIR / "artifact" / "explanations" / "2018-04-06_11_00_00~2018-04-06_12_15_00_explanations.json"
+DEFAULT_MAPPING = Path(getattr(config, "NODE_MAPPING_JSON", DEFAULT_JSON.parent / "node_mapping.json"))
 
 
 def _load_env(env_path: Path) -> Dict[str, str]:
@@ -42,21 +32,19 @@ def _load_env(env_path: Path) -> Dict[str, str]:
 
 
 def main() -> None:
-    for key, value in _load_env(REPO_ROOT / ".env").items():
+    for key, value in _load_env(CAD_DIR / ".env").items():
         os.environ.setdefault(key, value)
-    config = _load_config()
 
     json_path = Path(os.environ.get("KAIROS_EXPLANATION_JSON", DEFAULT_JSON)).resolve()
     if not json_path.exists():
         raise FileNotFoundError(f"Explanation JSON not found: {json_path}")
 
-    mapping_default = config.get("NODE_MAPPING_JSON", DEFAULT_JSON.parent / "node_mapping.json")
-    mapping_path = Path(os.environ.get("KAIROS_NODE_MAPPING_JSON", mapping_default)).resolve()
+    mapping_path = Path(os.environ.get("KAIROS_NODE_MAPPING_JSON", DEFAULT_MAPPING)).resolve()
     if not mapping_path.exists():
         mapping_path = None
 
     data = json.loads(json_path.read_text())
-    output_dir = (REPO_ROOT / "cadets" / "artifact" / "explanations").resolve()
+    output_dir = (CAD_DIR / "artifact" / "explanations").resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     md_path, html_path, _ = report_builder.build_reports(
