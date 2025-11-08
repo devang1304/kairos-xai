@@ -23,7 +23,7 @@ from contextlib import contextmanager
 from typing import Any, Iterable, List, Tuple
 
 # Re-use the existing constants
-from config import DATABASE, USER, PASSWORD, HOST, PORT
+from ..config import DATABASE, USER, PASSWORD, HOST, PORT
 
 
 ###############################################################################

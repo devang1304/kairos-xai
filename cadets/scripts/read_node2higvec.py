@@ -1,18 +1,37 @@
 #!/usr/bin/env python3
-import os
+from __future__ import annotations
+
+import argparse
 import glob
-import torch
-import numpy as np
+from pathlib import Path
 import sys
-sys.modules['numpy._core'] = np.core
+
+import numpy as np
+import torch
+
+from ..config import ARTIFACT_DIR
+
+sys.modules["numpy._core"] = np.core  # type: ignore
+
+DEVICE = "cpu"
+RTOL, ATOL = 1e-6, 1e-6
 
 
-
-# --- CONFIG ---
-GRAPHS_DIR       = "artifact/graphs"
-NODE_VEC_PATH    = "artifact/node2higvec.npy"    # adjust if you used a .pt/.pth suffix
-DEVICE           = "cpu"                     # or "cuda" if appropriate
-RTOL, ATOL       = 1e-6, 1e-6                # tolerance for allclose checks
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Verify node2higvec embeddings against graphs.")
+    parser.add_argument(
+        "--graphs-dir",
+        type=Path,
+        default=Path(ARTIFACT_DIR) / "graphs",
+        help="Directory containing *.TemporalData.simple files.",
+    )
+    parser.add_argument(
+        "--embedding",
+        type=Path,
+        default=Path(ARTIFACT_DIR) / "node2higvec.npy",
+        help="Path to node2higvec tensor (.npy or .pt).",
+    )
+    return parser.parse_args()
 
 def load_node_embeddings(path):
     """Load the node2higvec array and return a numpy array."""
@@ -74,6 +93,35 @@ def main():
         print("\nAll graphs verified successfully.")
     else:
         print(f"\nTotal mismatches across all files: {total_bad}")
+
+def main() -> None:
+    args = parse_args()
+    node_higs = load_node_embeddings(str(args.embedding))
+    pattern = str(args.graphs_dir / "*.TemporalData.simple")
+    files = sorted(glob.glob(pattern))
+    if not files:
+        print(f"No files matching {pattern}")
+        return
+
+    total_bad = 0
+    for f in files:
+        print(f"\nVerifying {Path(f).name} …")
+        bad = verify_graph(f, node_higs)
+        if not bad:
+            print("  ✓ all embeddings match")
+        else:
+            print(f"  ✗ {len(bad)} mismatches:")
+            for idx, role, nid in bad[:10]:
+                print(f"    edge #{idx}: {role} node {nid}")
+            if len(bad) > 10:
+                print(f"    … and {len(bad) - 10} more")
+            total_bad += len(bad)
+
+    if total_bad == 0:
+        print("\nAll graphs verified successfully.")
+    else:
+        print(f"\nTotal mismatches across all files: {total_bad}")
+
 
 if __name__ == "__main__":
     main()

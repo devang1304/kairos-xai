@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Iterable, List
 
-from db_utils import run_sql
+from .db_utils import run_sql
 
 
 def fetch_node_metadata(node_ids: Iterable[int]) -> List[dict]:

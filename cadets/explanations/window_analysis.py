@@ -17,6 +17,7 @@ import copy
 import json
 import logging
 import os
+from pathlib import Path
 from collections import defaultdict, deque
 from typing import Deque, Dict, List, Tuple
 
@@ -24,13 +25,13 @@ import torch
 from tqdm import tqdm
 
 try:
-    from ..config import ARTIFACT_DIR, include_edge_type, node_embedding_dim
+    from ..config import ARTIFACT_DIR, NODE_MAPPING_JSON, include_edge_type, node_embedding_dim
     from ..kairos_utils import datetime_to_ns_time_US, ns_time_to_datetime_US
 except ImportError:  # pragma: no cover
-    from config import ARTIFACT_DIR, include_edge_type, node_embedding_dim
+    from config import ARTIFACT_DIR, NODE_MAPPING_JSON, include_edge_type, node_embedding_dim
     from kairos_utils import datetime_to_ns_time_US, ns_time_to_datetime_US
 
-from . import gnn_explainer, graphmask_explainer, utils, va_tg_explainer
+from . import gnn_explainer, graphmask_explainer, report_builder, utils, va_tg_explainer
 from .utils import TemporalLinkWrapper, ensure_gpu_space, log_cuda_memory
 
 DEFAULT_GRAPH_LABEL = "4_6"
@@ -49,6 +50,7 @@ HARD_CODED_ATTACK_WINDOWS = [
 ]
 
 OUTPUT_DIR = os.path.join(ARTIFACT_DIR, "explanations")
+NODE_MAPPING_PATH = os.getenv("KAIROS_NODE_MAPPING_JSON", NODE_MAPPING_JSON)
 
 
 def _setup_logger() -> logging.Logger:
@@ -394,6 +396,18 @@ def run_pipeline() -> Dict[str, object]:
         )
         with open(out_path, "w", encoding="utf-8") as fh:
             json.dump(window_output, fh, indent=2)
+
+        try:
+            mapping_path = Path(NODE_MAPPING_PATH) if NODE_MAPPING_PATH else None
+            md_path, html_path, _ = report_builder.build_reports(
+                window_output,
+                Path(OUTPUT_DIR),
+                node_mapping_path=mapping_path,
+                run_gpt=True,
+            )
+            logger.info("Analyst reports generated: %s, %s", md_path.name, html_path.name)
+        except Exception as report_err:
+            logger.warning("Report generation failed for %s: %s", window[2], report_err)
         print(f"[success] Wrote window explanations to {out_path}")
 
     summary = {"graph_label": DEFAULT_GRAPH_LABEL, "windows": outputs}

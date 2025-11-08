@@ -8,7 +8,10 @@
 RAW_DIR = "/mnt/data/repos/xai-kairos/data/"
 
 # The directory to save all artifacts
-ARTIFACT_DIR = "artifact/"
+ARTIFACT_DIR = "./artifact/"
+
+# JSON mapping file for node id -> human readable label
+NODE_MAPPING_JSON = ARTIFACT_DIR + "node_mapping.json"
 
 # The directory to save the vectorized graphs
 GRAPHS_DIR = ARTIFACT_DIR + "graph_embeddings/"
@@ -143,4 +146,3 @@ time_window_size = 60000000000 * 15
 
 beta_day6 = 100
 beta_day7 = 100
-

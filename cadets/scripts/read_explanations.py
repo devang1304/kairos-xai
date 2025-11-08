@@ -4,8 +4,8 @@ from typing import List, Optional, Sequence, Tuple
 
 import torch
 
-from config import ARTIFACT_DIR, include_edge_type
-from kairos_utils import ns_time_to_datetime_US
+from ..config import ARTIFACT_DIR, include_edge_type
+from ..kairos_utils import ns_time_to_datetime_US
 
 try:
     import matplotlib.pyplot as plt
