@@ -212,9 +212,9 @@ def _call_gpt_section(
     try:
         start_time = time.time()
         with client.responses.stream(
-            model="gpt-5-mini",
+            model="gpt-5",
             input=input_payload,
-            reasoning={"effort": "minimal"},
+            reasoning={"effort": "low"},
             text={"verbosity": "medium"},
         ) as stream:
             collected: List[str] = []

@@ -443,21 +443,21 @@ def run_pipeline() -> Dict[str, object]:
         out_path = os.path.join(OUTPUT_DIR, f"{safe_base}_explanations.json")
         with open(out_path, "w", encoding="utf-8") as fh:
             json.dump(window_output, fh, indent=2)
+        logger.info("Wrote window explanations to %s", out_path)
         print(f"[success] Wrote window explanations to {out_path}")
-        print("[hint] Run 'python -m reporting.generate_report' to build analyst summaries.")
 
     summary = {"graph_label": DEFAULT_GRAPH_LABEL, "windows": outputs}
     summary_path = os.path.join(OUTPUT_DIR, f"graph_{DEFAULT_GRAPH_LABEL}_summary.json")
     with open(summary_path, "w", encoding="utf-8") as fh:
         json.dump(summary, fh, indent=2)
+    logger.info("Summary saved to %s", summary_path)
     print(f"[success] Summary saved to {summary_path}")
 
     return summary
 
 
 def main() -> None:
-    summary = run_pipeline()
-    print(json.dumps(summary, indent=2))
+    run_pipeline()
 
 
 if __name__ == "__main__":

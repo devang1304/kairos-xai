@@ -5,6 +5,7 @@ import json
 import os
 import sys
 from pathlib import Path
+import time
 from typing import Dict
 
 CAD_DIR = Path(__file__).resolve().parents[1]  # .../cadets
@@ -33,6 +34,8 @@ def _load_env(env_path: Path) -> Dict[str, str]:
 
 
 def main() -> None:
+    t0 = time.perf_counter()
+    print("[report] Loading environment overrides (.env) …")
     for key, value in _load_env(CAD_DIR / ".env").items():
         os.environ.setdefault(key, value)
 
@@ -44,12 +47,25 @@ def main() -> None:
     if not mapping_path.exists():
         mapping_path = None
 
+    print(f"[report] Loading payload: {json_path}")
+    t_load = time.perf_counter()
     data = json.loads(json_path.read_text())
+    print(f"[report] Payload loaded in {time.perf_counter() - t_load:.2f}s")
+
     output_dir = (CAD_DIR / "artifact" / "explanations").resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     use_gpt = bool(os.environ.get("OPENAI_API_KEY"))
     existing_summary = data.get("gpt_summary")
+    if existing_summary and not use_gpt:
+        print("[report] Reusing existing GPT summary from artifact (OPENAI_API_KEY not set).")
+    elif use_gpt:
+        print("[report] OPENAI_API_KEY detected; generating GPT narrative …")
+    else:
+        print("[report] No GPT available; generating report without AI narrative …")
+
+    print("[report] Building Markdown report …")
+    t_build = time.perf_counter()
     md_path, gpt_summary = report_builder.build_reports(
         data,
         output_dir,
@@ -57,24 +73,21 @@ def main() -> None:
         run_gpt=use_gpt,
         existing_summary=existing_summary,
     )
+    print(f"[report] Report build completed in {time.perf_counter() - t_build:.2f}s")
 
     if not md_path:
         raise RuntimeError("Markdown report was not generated.")
 
     if gpt_summary:
+        print("[report] Persisting GPT summary back to explanation JSON …")
+        t_write = time.perf_counter()
         data["gpt_summary"] = gpt_summary
         json_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    elif existing_summary:
-        print("[info] Reused existing GPT summary from artifact.")
-    elif use_gpt:
-        print("[warn] GPT summary unavailable; report exported without AI narrative.")
-    else:
-        print("[info] OPENAI_API_KEY not set; generated report without GPT narrative.")
+        print(f"[report] Summary persisted in {time.perf_counter() - t_write:.2f}s")
 
-    print("Markdown:", md_path)
-    if gpt_summary:
-        print("GPT summary:")
-        print(gpt_summary)
+    total = time.perf_counter() - t0
+    print(f"[report] Markdown written to {md_path}")
+    print(f"[report] Done in {total:.2f}s")
 
 
 if __name__ == "__main__":

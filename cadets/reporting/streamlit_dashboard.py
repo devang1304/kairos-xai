@@ -56,6 +56,7 @@ def resolve_label(node_id: Optional[int], mapping: Dict[int, str]) -> str:
     return mapping.get(int(node_id), f"Node {node_id}")
 
 
+@st.cache_data(show_spinner=False)
 def summarise_graph_edges(payload: Dict[str, object], mapping: Dict[int, str]) -> List[Dict[str, object]]:
     aggregate = payload.get("graphmask", {}).get("aggregate")
     if not isinstance(aggregate, list):
@@ -85,6 +86,7 @@ def summarise_graph_edges(payload: Dict[str, object], mapping: Dict[int, str]) -
     return rows
 
 
+@st.cache_data(show_spinner=False)
 def summarise_nodes(payload: Dict[str, object], mapping: Dict[int, str], threshold: float) -> List[Dict[str, object]]:
     nodes = payload.get("nodes", [])
     if not isinstance(nodes, list):
@@ -196,9 +198,18 @@ def plot_top_edges_bar(graph_rows: List[Dict[str, object]], k: int = 10) -> go.F
             marker_color=colors,
             hovertemplate="%{customdata}",
             customdata=hover,
+            name="Weight",
+            showlegend=True,
         )
     )
-    fig.update_layout(height=420, margin=dict(l=10, r=10, t=10, b=10))
+    fig.update_layout(
+        height=420,
+        margin=dict(l=10, r=10, t=40, b=10),
+        title=dict(text="Top GraphMask edges", x=0.5, xanchor="center"),
+        xaxis_title="Weight",
+        yaxis_title="Edge (relation src → dst)",
+        legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1),
+    )
     fig.update_yaxes(automargin=True)
     return fig
 
@@ -209,16 +220,29 @@ def plot_node_scores_bar(node_rows: List[Dict[str, object]], threshold: float, k
     scores = [float(r["avg_loss"]) for r in top]
     colors = ["#d62728" if r.get("above") else "#2ca02c" for r in top]
     fig = go.Figure(
-        go.Bar(x=scores, y=labels, orientation="h", marker_color=colors, hovertemplate="avg_loss=%{x:.3f}<extra></extra>")
+        go.Bar(
+            x=scores,
+            y=labels,
+            orientation="h",
+            marker_color=colors,
+            hovertemplate="avg_loss=%{x:.3f}<extra></extra>",
+            name="Avg loss",
+            showlegend=True,
+        )
     )
-    fig.add_shape(
-        type="line",
-        x0=threshold,
-        x1=threshold,
-        y0=-0.5,
-        y1=len(labels) - 0.5,
-        line=dict(color="#7f7f7f", width=2, dash="dash"),
-    )
+    # Add a legendable threshold line as a separate scatter trace
+    if labels:
+        fig.add_trace(
+            go.Scatter(
+                x=[threshold, threshold],
+                y=[-0.5, len(labels) - 0.5],
+                mode="lines",
+                line=dict(color="#7f7f7f", width=2, dash="dash"),
+                name="Event‑loss threshold",
+                hoverinfo="skip",
+                showlegend=True,
+            )
+        )
     # Annotation for threshold semantics
     if labels:
         fig.add_annotation(
@@ -230,7 +254,14 @@ def plot_node_scores_bar(node_rows: List[Dict[str, object]], threshold: float, k
             showarrow=False,
             font=dict(color="#7f7f7f", size=12),
         )
-    fig.update_layout(height=420, margin=dict(l=10, r=10, t=10, b=10))
+    fig.update_layout(
+        height=420,
+        margin=dict(l=10, r=10, t=40, b=10),
+        title=dict(text="Top nodes by average loss", x=0.5, xanchor="center"),
+        xaxis_title="Average loss",
+        yaxis_title="Node",
+        legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1),
+    )
     fig.update_yaxes(automargin=True)
     return fig
 
@@ -258,8 +289,24 @@ def plot_event_timeline(payload: Dict[str, object]) -> go.Figure:
     items = sorted(counts.items())
     x = [k for k, _ in items]
     y = [v for _, v in items]
-    fig = go.Figure(go.Scatter(x=x, y=y, mode="lines+markers", line=dict(color="#1f77b4")))
-    fig.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10))
+    fig = go.Figure(
+        go.Scatter(
+            x=x,
+            y=y,
+            mode="lines+markers",
+            line=dict(color="#1f77b4"),
+            name="Events/min",
+            showlegend=True,
+        )
+    )
+    fig.update_layout(
+        height=320,
+        margin=dict(l=10, r=10, t=10, b=10),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        xaxis_title="Time (minute)",
+        yaxis_title="Events",
+        title=dict(text="Event volume (GraphMask timestamps)", x=0.5, xanchor="center"),
+    )
     return fig
 
 
@@ -281,6 +328,49 @@ def parse_gpt_sections(md: Optional[str]) -> Dict[str, str]:
     if current_title is not None:
         sections[current_title] = "\n".join(current_lines).strip()
     return sections
+
+
+def _sanitize_base(stem: str) -> str:
+    return stem.replace(":", "_").replace("/", "_") or "window"
+
+
+def compute_report_md_path(payload: Dict[str, object], base_dir: Path) -> Path:
+    raw = str(payload.get("window_path") or "")
+    stem = _sanitize_base(Path(raw).stem)
+    return (base_dir / f"{stem}_report.md").resolve()
+
+
+def extract_node_md_sections(md_text: str) -> List[Tuple[str, str]]:
+    """Extract (title, content) tuples for node-level subsections from report Markdown."""
+    lines = md_text.splitlines()
+    in_block = False
+    current_title: Optional[str] = None
+    buf: List[str] = []
+    out: List[Tuple[str, str]] = []
+    for line in lines:
+        if line.startswith("## ") and "Node-Level Explanations" in line:
+            in_block = True
+            current_title = None
+            buf = []
+            continue
+        if not in_block:
+            continue
+        if line.startswith("## ") and "Node-Level Explanations" not in line:
+            # End of node section
+            if current_title is not None:
+                out.append((current_title, "\n".join(buf).strip()))
+            break
+        if line.startswith("### "):
+            if current_title is not None:
+                out.append((current_title, "\n".join(buf).strip()))
+                buf = []
+            current_title = line[4:].strip()
+        else:
+            if current_title is not None:
+                buf.append(line)
+    if in_block and current_title is not None:
+        out.append((current_title, "\n".join(buf).strip()))
+    return out
 
 
 def main() -> None:
@@ -307,6 +397,7 @@ def main() -> None:
                 break
 
     selection = st.sidebar.selectbox("Explanation JSON", files, index=default_index, format_func=lambda p: p.name)
+    page = st.sidebar.radio("Page", ("Window", "Node explanations"), index=0)
 
     try:
         payload = load_payload(selection)
@@ -323,59 +414,135 @@ def main() -> None:
     gpt_summary = payload.get("gpt_summary")
 
     node_rows = summarise_nodes(payload, node_map, float(payload.get("threshold", 0.0)))
-    st.sidebar.metric("Nodes", len(node_rows))
-    st.sidebar.metric("Graph edges", len(graph_rows))
-    st.sidebar.metric("GPT summary", "Yes" if gpt_summary else "No")
 
-    st.markdown(f"### Window: `{window_name}`")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Events", f"{events:,}")
-    col2.metric("Graph edges", len(graph_rows))
-    col3.metric("Threshold", f"{threshold:.4f}")
+    if page == "Window":
+        st.markdown(f"### Window: `{window_name}`")
+        col1, col2, col3, col4, col5 = st.columns(5)
+        col1.metric("Total Events in window", f"{events:,}")
+        col2.metric("Sub-graph Nodes", len(node_rows))
+        col3.metric("Sub-graph edges", len(graph_rows))
+        col4.metric("Threshold", f"{threshold:.4f}")
+        col5.metric("AI summary", "Yes" if gpt_summary else "No")
 
-    # Only Overview, with 3 visuals
-    gpt_sections = parse_gpt_sections(gpt_summary)
+        st.divider()
 
-    st.markdown("#### Top GraphMask edges")
-    cols = st.columns([2, 1])
-    with cols[0]:
+        # Overview visuals + GPT
+        gpt_sections = parse_gpt_sections(gpt_summary)
+
+        # 1) Activity overview: narrative (left) + event volume (right)
+        st.markdown("### Window activity overview")
+        cols = st.columns([1, 2])
+        with cols[0]:
+            text = gpt_sections.get("What happened?")
+            if text:
+                st.markdown(text)
+            else:
+                st.info("No GPT narrative available for this window.")
+        with cols[1]:
+            timeline_fig = plot_event_timeline(payload)
+            if timeline_fig.data:
+                st.plotly_chart(timeline_fig, use_container_width=True)
+            else:
+                st.info("No timestamps available for timeline.")
+
+        st.divider()
+
+        # 2) Top GraphMask edges
+        st.markdown("### Top GraphMask edges")
         if graph_rows:
             st.plotly_chart(plot_top_edges_bar(graph_rows, k=10), use_container_width=True)
         else:
             st.info("No GraphMask edges available.")
-    with cols[1]:
-        text = gpt_sections.get("Why flagged?") or gpt_sections.get("What happened?")
-        if text:
-            st.markdown("**Why flagged?**")
-            st.markdown(text)
 
-    st.markdown("#### Top nodes by average loss")
-    if node_rows:
-        st.plotly_chart(plot_node_scores_bar(node_rows, threshold, k=10), use_container_width=True)
-    else:
-        st.info("No nodes present.")
+        st.divider()
 
-    text = gpt_sections.get("Who's involved?")
-    if text:
-        st.markdown("#### Who's involved?")
-        st.markdown(text)
-
-    st.markdown("#### Event volume over time (aggregate timestamps)")
-    cols = st.columns([2, 1])
-    with cols[0]:
-        timeline_fig = plot_event_timeline(payload)
-        if timeline_fig.data:
-            st.plotly_chart(timeline_fig, use_container_width=True)
+        # 3) Top nodes by average loss
+        st.markdown("### Top nodes by average loss")
+        if node_rows:
+            st.plotly_chart(plot_node_scores_bar(node_rows, threshold, k=10), use_container_width=True)
         else:
-            st.info("No timestamps available for timeline.")
-    with cols[1]:
-        text = gpt_sections.get("What happened?")
+            st.info("No nodes present.")
+
+        st.divider()
+
+        # 4) Who's involved? (GPT)
+        text = gpt_sections.get("Who's involved?")
         if text:
-            st.markdown("**What happened?**")
+            st.markdown("#### Who's involved?")
             st.markdown(text)
 
-    with st.expander("Raw explanation payload"):
-        st.json(payload)
+        st.divider()
+
+        # 5) Why flagged? (GPT) — emphasize readability with higher-level heading
+        text = gpt_sections.get("Why flagged?")
+        if text:
+            st.markdown("### Why flagged?")
+            st.markdown(text)
+
+        # 6) What's missing or risky? (GPT)
+        text = gpt_sections.get("What's missing or risky?")
+        if text:
+            st.divider()
+            st.markdown("#### What's missing or risky?")
+            st.markdown(text)
+
+        # 7) What next? (GPT)
+        text = gpt_sections.get("What next?")
+        if text:
+            st.divider()
+            st.markdown("#### What next?")
+            st.markdown(text)
+    else:
+        # Node explanations page (from report Markdown)
+        report_md = compute_report_md_path(payload, EXPLANATION_DIR)
+        if not report_md.exists():
+            st.info(
+                f"No report Markdown found (expected {report_md.name}). Generate it via: python -m reporting.generate_report"
+            )
+        else:
+            md_text = report_md.read_text(encoding="utf-8")
+            sections = extract_node_md_sections(md_text)
+            if not sections:
+                st.info("No node-level explanations found in the report.")
+            else:
+                st.markdown("### Node explanations")
+                # Build a mapping from label → markdown content using the report titles
+                md_index = {}
+                for title, content in sections:
+                    base = title.split(" (", 1)[0].strip() or title
+                    md_index[base] = content
+
+                # Build human-readable options from payload nodes using node mapping
+                raw_nodes = payload.get("nodes", []) or []
+                labels = []
+                for n in raw_nodes:
+                    nid = n.get("node_id")
+                    label = resolve_label(nid, node_map)
+                    labels.append((label, int(nid) if nid is not None else -1))
+                # Disambiguate duplicate labels by appending node id
+                label_counts = {}
+                for label, _ in labels:
+                    label_counts[label] = label_counts.get(label, 0) + 1
+                options = []
+                for label, nid in labels:
+                    if label_counts.get(label, 0) > 1 and nid >= 0:
+                        options.append(f"{label} [id={nid}]")
+                    else:
+                        options.append(label)
+                # Fallback: if payload had no nodes, use titles from MD
+                if not options:
+                    options = [t.split(" (", 1)[0].strip() or t for t, _ in sections]
+
+                selected = st.selectbox(
+                    "Select a node",
+                    sorted(set(options)),
+                    index=0,
+                    key="node_expl_select",
+                )
+                # Map selection back to base label (strip appended id, if any)
+                base = selected.split(" [id=", 1)[0]
+                st.markdown(f"#### {base}")
+                st.markdown(md_index.get(base, "No explanation available in the report for this node."))
 
 
 if __name__ == "__main__":
